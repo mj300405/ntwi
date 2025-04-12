@@ -1,127 +1,100 @@
-# CLAM (Clustering-constrained Attention Multiple Instance Learning) Model Architecture
+# CLAM Model Architecture
+
+This document describes the architecture of the CLAM (Clustering-constrained Attention Multiple Instance Learning) model used for EGFR mutation prediction.
 
 ## Overview
-CLAM is a deep learning model designed for weakly supervised learning on gigapixel whole slide images (WSIs). It uses attention-based multiple instance learning (MIL) to classify slides based on their tiles/patches.
 
-## Architecture Diagram
-
-```mermaid
-flowchart TD
-    subgraph Input["Input Layer"]
-        A["Input Slide [B, n, C, H, W]"] --> B["Feature Extractor"]
-    end
-
-    subgraph FeatureExtractor["Feature Extractor"]
-        B --> C["ResNet50 Backbone"]
-        C --> D["Features [B, n, 2048]"]
-    end
-
-    subgraph Attention["Attention Layer"]
-        D --> E["FC Layer 2048 → 512"]
-        E --> F["ReLU"]
-        F --> G["Gated Attention K=8 heads"]
-        G --> H["Attention Scores [B, K, 512]"]
-        G --> I["Attention Weights [B, K, n]"]
-    end
-
-    subgraph Classification["Classification Layer"]
-        H --> J["First Head Selection [B, 512]"]
-        J --> K["Classifier 512 → 2"]
-        K --> L["Logits [B, 2]"]
-        L --> M["Softmax"]
-        M --> N["Class Probabilities [B, 2]"]
-        N --> O["Prediction [B]"]
-    end
-
-    classDef input fill:#f9f,stroke:#333,stroke-width:2px
-    classDef feature fill:#bbf,stroke:#333,stroke-width:2px
-    classDef attention fill:#bfb,stroke:#333,stroke-width:2px
-    classDef classification fill:#fbb,stroke:#333,stroke-width:2px
-
-    class A input
-    class B feature
-    class G attention
-    class K classification
-```
+CLAM is a deep learning model designed for whole slide image (WSI) analysis. It uses attention mechanisms to identify important regions in the slide and make predictions based on these regions.
 
 ## Model Components
 
 ### 1. Feature Extractor
-- Input: Image patches [B, n, C, H, W]
-  - B: batch size
-  - n: number of tiles
-  - C: number of channels (3 for RGB)
-  - H, W: height and width of patches
-- Output: [B, n, 2048]
-- Components:
-  - Pre-trained ResNet50 backbone
-  - Removes the final classification layer
-  - Outputs 2048-dimensional features
+
+The model uses a pre-trained ResNet-50 as the feature extractor:
+- Input: Image tiles (224x224 pixels)
+- Output: 1024-dimensional feature vectors
+- Pre-trained on ImageNet
 
 ### 2. Attention Mechanism
-- Input: [B, n, 2048]
-- Components:
-  - FC Layer (2048 → 512)
-  - ReLU activation
-  - Gated Attention with 8 heads
-- Output:
-  - Attention scores: [B, K, 512]
-  - Attention weights: [B, K, n]
 
-### 3. Classification Head
-- Input: [B, 512] (first attention head)
-- Components:
-  - Linear layer (512 → 2)
-  - Softmax activation
-- Output:
-  - Logits: [B, 2]
-  - Probabilities: [B, 2]
-  - Prediction: [B]
+The attention mechanism identifies important regions in the slide:
+- Input: Feature vectors from all tiles
+- Output: Attention scores for each tile
+- Uses a gating mechanism to focus on relevant regions
 
-## Key Features
+### 3. Bag Classifier
 
-1. **ResNet50 Backbone**
-   - Pre-trained on ImageNet
-   - Extracts high-level features from image patches
-   - Output dimension: 2048
+The bag classifier makes the final prediction:
+- Input: Weighted sum of features based on attention scores
+- Output: Probability of EGFR mutation
 
-2. **Gated Attention**
-   - Uses 8 attention heads
-   - Each head produces attention scores and weights
-   - Only first head is used for final classification
+## Model Sizes
 
-3. **Size Variants**
-   - Small: [2048, 512, 256]
-   - Big: [2048, 512, 384]
+The model is available in two sizes:
 
-4. **Loss Function**
-   - Cross-entropy loss for classification
-   - Supports both instance and bag-level supervision
+### Small Model (Default in previous versions)
+- Fewer parameters
+- Faster training
+- Suitable for smaller datasets or limited computational resources
 
-## Data Flow
+### Big Model (Default in current version)
+- More parameters
+- Better performance on complex datasets
+- Recommended for most use cases
+- Improved feature extraction and attention mechanisms
 
-1. Input slide is divided into tiles
-2. Each tile is processed through ResNet50
-3. Features are extracted and pooled
-4. Attention mechanism identifies important tiles
-5. Classification head produces final prediction
+## Training Process
 
-## Usage Example
+### Early Stopping
 
-```python
-# Create model
-model = CLAM(
-    gate=True,           # Use gated attention
-    size_arg="small",    # Use small model variant
-    dropout=False,       # No dropout
-    k_sample=8,          # 8 attention heads
-    n_classes=2          # Binary classification
-)
+The model uses early stopping to prevent overfitting:
+- Monitors validation loss during training
+- Stops training if loss doesn't improve for a specified number of epochs
+- Saves the best model based on lowest loss
+- Default patience: 7 epochs
+- Default minimum improvement: 0.001
 
-# Forward pass
-logits, Y_prob, Y_hat, A = model(x)
-# logits: raw scores [B, 2]
-# Y_prob: class probabilities [B, 2]
-# Y_hat: predicted class [B]
-# A: attention weights [B, n]
-``` 
+### Checkpointing
+
+The model saves checkpoints during training:
+- Regular checkpoints after each epoch
+- Best model checkpoint based on lowest loss
+- All checkpoints include model state, optimizer state, and training configuration
+
+## Memory Optimization
+
+The model is optimized for Apple Metal (MPS) acceleration:
+- Efficient memory management
+- Garbage collection after each batch and epoch
+- Pin memory enabled for faster data transfer
+- Automatic device selection (MPS if available, CPU otherwise)
+
+## Hyperparameters
+
+Key hyperparameters for the model:
+
+### Feature Extraction
+- Input size: 224x224 pixels
+- Feature dimension: 1024
+
+### Attention Mechanism
+- Number of attention heads: 8 (default)
+- Gating mechanism: Enabled by default
+
+### Training
+- Learning rate: 0.0001 (default)
+- Batch size: 1 (default)
+- Dropout rate: 0.25 (default)
+- Number of epochs: 50 (default)
+- Early stopping patience: 7 (default)
+- Early stopping minimum delta: 0.001 (default)
+
+## Usage
+
+The model is designed to be used with the training script:
+
+```bash
+python -m clam.train
+```
+
+This will use the big model by default with early stopping enabled. For more details on training options, see the [Training Documentation](training.md). 

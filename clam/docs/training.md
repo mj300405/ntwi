@@ -1,118 +1,141 @@
-# Training and Checkpoints
+# Training the CLAM Model
 
-This document explains the training process and checkpoint system for the CLAM model.
+This document provides instructions for training the CLAM (Clustering-constrained Attention Multiple Instance Learning) model for EGFR mutation prediction.
+
+## Prerequisites
+
+- Python 3.8+
+- PyTorch 2.0+
+- Apple Metal (MPS) support for acceleration
+- Required Python packages (see `requirements.txt`)
+
+## Data Preparation
+
+The model expects data organized in the following structure:
+
+```
+project_root/
+├── train/
+│   ├── EGFR_positive/
+│   │   └── [patient folders with image tiles]
+│   ├── EGFR_negative/
+│   │   └── [patient folders with image tiles]
+│   ├── EGFR_positive_cnn/ (optional)
+│   │   └── [patient folders with image tiles]
+│   └── EGFR_negative_cnn/ (optional)
+│       └── [patient folders with image tiles]
+└── test/
+    ├── C-S-EGFR_positive/
+    │   └── [patient folders with image tiles]
+    └── C-S-EGFR_negative/
+        └── [patient folders with image tiles]
+```
+
+Each patient folder should contain image tiles extracted from whole slide images.
 
 ## Training Process
 
-The training process is handled by `clam/train.py`. The script supports various command-line arguments to customize the training:
+### Basic Training
 
-### Data Arguments
-- `--data_dir`: Path to the data directory (default: project_root/train)
-  - The data directory should have one of the following structures:
-    ```
-    # For training data (--split train):
-    data_dir/
-    ├── EGFR_positive/
-    ├── EGFR_negative/
-    ├── EGFR_positive_cnn/ (optional)
-    └── EGFR_negative_cnn/ (optional)
-
-    # For test data (--split test):
-    data_dir/
-    ├── C-S-EGFR_positive/
-    └── C-S-EGFR_negative/
-    ```
-  - If not specified, the script will look for data in the `train` directory at the project root
-- `--split`: Data split to use, either "train" or "test" (default: "train")
-- `--max_tiles`: Maximum number of tiles per bag (default: 100)
-- `--num_workers`: Number of workers for data loading (default: 4)
-
-### Model Arguments
-- `--model_size`: Model size, either "small" or "big" (default: "small")
-- `--dropout`: Dropout rate (default: 0.25)
-- `--k_sample`: Number of attention heads (default: 8)
-- `--n_classes`: Number of classes (default: 2)
-
-### Training Arguments
-- `--num_epochs`: Number of training epochs (default: 10)
-- `--batch_size`: Batch size (default: 1)
-- `--learning_rate`: Learning rate (default: 0.0001)
-
-## Checkpoint System
-
-The checkpoint system automatically saves model checkpoints during training in the `clam/checkpoints` directory. This directory is created automatically and contains all training runs.
-
-### Directory Structure
-
-Each training run creates a new timestamped directory with the following structure:
-
-```
-clam/checkpoints/
-└── run_YYYYMMDD_HHMMSS/
-    ├── config.json           # Training configuration
-    ├── checkpoint_epoch_N.pt # Checkpoint for epoch N
-    └── best_model.pt         # Best model checkpoint
-```
-
-Where:
-- Each `run_YYYYMMDD_HHMMSS` directory represents a single training run
-- `config.json` contains the training configuration and results
-- `checkpoint_epoch_N.pt` files are checkpoints saved after each epoch
-- `best_model.pt` is the model checkpoint with the lowest loss
-
-### Checkpoint Contents
-
-Each checkpoint file (`.pt`) contains:
-- Model state dictionary
-- Optimizer state dictionary
-- Current epoch number
-- Current loss value
-- Training arguments
-
-The `config.json` file contains:
-- Current epoch
-- Current loss
-- Training arguments
-
-### Loading Checkpoints
-
-To load a checkpoint and resume training, use the `load_checkpoint` function:
-
-```python
-from clam.train import load_checkpoint
-
-# Load checkpoint
-model, optimizer, epoch, loss = load_checkpoint(
-    checkpoint_path="path/to/checkpoint.pt",
-    model=model,
-    optimizer=optimizer,
-    device="cpu"  # or "cuda" or "mps"
-)
-```
-
-### Best Model
-
-The training script automatically saves the best model (based on loss) as `best_model.pt` in each run directory. This is the model you should use for inference.
-
-## Example Usage
+To train the model with default settings:
 
 ```bash
-# Train the model using default data directory (project_root/train)
 python -m clam.train
+```
 
-# Train with custom data directory
-python -m clam.train --data_dir /path/to/data
+This will:
+- Use the "big" model architecture by default
+- Train for up to 50 epochs
+- Use early stopping with patience of 7 epochs
+- Save checkpoints and the best model
 
-# Train on test data
-python -m clam.train --data_dir /path/to/data --split test
+### Advanced Training Options
 
-# Train with custom parameters
+You can customize the training with various command-line arguments:
+
+```bash
 python -m clam.train \
-    --data_dir /path/to/data \
-    --split train \
-    --model_size big \
-    --dropout 0.5 \
-    --k_sample 16 \
-    --num_epochs 50 \
-    --learning_rate 0.00001
-``` 
+  --data_dir /path/to/data \
+  --split train \
+  --model_size big \
+  --num_epochs 100 \
+  --batch_size 1 \
+  --learning_rate 0.0001 \
+  --patience 10 \
+  --min_delta 0.0005 \
+  --max_tiles 100 \
+  --num_workers 4
+```
+
+#### Key Parameters
+
+- **Data Parameters**:
+  - `--data_dir`: Path to the data directory (default: project_root/train)
+  - `--split`: Data split to use (train or test)
+  - `--max_tiles`: Maximum number of tiles per bag (default: 100)
+  - `--num_workers`: Number of workers for data loading (default: 4)
+
+- **Model Parameters**:
+  - `--model_size`: Model size (small or big, default: big)
+  - `--dropout`: Dropout rate (default: 0.25)
+  - `--k_sample`: Number of attention heads (default: 8)
+  - `--n_classes`: Number of classes (default: 2)
+
+- **Training Parameters**:
+  - `--num_epochs`: Number of training epochs (default: 50)
+  - `--batch_size`: Batch size (default: 1)
+  - `--learning_rate`: Learning rate (default: 0.0001)
+
+- **Early Stopping Parameters**:
+  - `--patience`: Number of epochs to wait before early stopping (default: 7)
+  - `--min_delta`: Minimum change in loss to qualify as an improvement (default: 0.001)
+
+## Early Stopping
+
+The training process includes early stopping to prevent overfitting:
+
+1. The model tracks the best loss achieved during training
+2. If the loss doesn't improve by at least `min_delta` for `patience` epochs, training stops
+3. The best model (based on lowest loss) is saved
+4. Progress information is displayed during training
+
+## Checkpoints and Model Saving
+
+- Checkpoints are saved after each epoch
+- The best model (based on lowest loss) is saved separately
+- All checkpoints and models are saved in timestamped directories under `clam/checkpoints/`
+- Each run directory contains:
+  - `config.json`: Training configuration
+  - `checkpoint_epoch_X.pt`: Checkpoints for each epoch
+  - `best_model.pt`: The best model based on loss
+
+## Monitoring Training
+
+During training, you'll see:
+- Progress bar for each epoch
+- Current loss values
+- Early stopping counter (if no improvement)
+- Checkpoint saving information
+
+## Troubleshooting
+
+### Memory Issues
+
+If you encounter memory issues:
+- Reduce `--max_tiles` to process fewer tiles per bag
+- Reduce `--batch_size` (already set to 1 by default)
+- Reduce `--num_workers` if using CPU
+
+### Performance Optimization
+
+For optimal performance on Apple Metal:
+- The script automatically uses MPS acceleration when available
+- `pin_memory` is enabled for MPS to improve data transfer
+- Garbage collection is performed after each batch and epoch
+
+### Data Directory Structure
+
+If you see errors about missing directories, ensure your data follows the expected structure:
+- For training: `EGFR_positive/` and `EGFR_negative/` are required
+- For testing: `C-S-EGFR_positive/` and `C-S-EGFR_negative/` are required
+- Optional CNN directories can be included for additional training data 
