@@ -63,77 +63,72 @@ def validate_data_paths(data_dir, split='train'):
     
     return True
 
-def save_checkpoint(model, optimizer, epoch, loss, args, is_best=False, checkpoint_dir=None):
-    """
-    Save model checkpoint
-    Args:
-        model: The model to save
-        optimizer: The optimizer to save
-        epoch: Current epoch number
-        loss: Current loss value
-        args: Training arguments
-        is_best: Whether this is the best model so far
-        checkpoint_dir: Directory to save checkpoints
-    """
-    if checkpoint_dir is None:
-        checkpoint_dir = os.path.join(os.path.dirname(__file__), "checkpoints")
-    
-    # Create timestamped directory for this training run
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_dir = os.path.join(checkpoint_dir, f"run_{timestamp}")
-    os.makedirs(run_dir, exist_ok=True)
-    
-    # Save training configuration
-    config = {
-        'epoch': epoch,
-        'loss': loss,
-        'args': vars(args)
-    }
-    with open(os.path.join(run_dir, 'config.json'), 'w') as f:
-        json.dump(config, f, indent=4)
-    
-    # Prepare checkpoint
-    checkpoint = {
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss,
-        'args': vars(args)
-    }
-    
-    # Save regular checkpoint
-    checkpoint_path = os.path.join(run_dir, f"checkpoint_epoch_{epoch}.pt")
-    torch.save(checkpoint, checkpoint_path)
-    print(f"Saved checkpoint to {checkpoint_path}")
-    
-    # Save best model if needed
-    if is_best:
-        best_model_path = os.path.join(run_dir, "best_model.pt")
-        torch.save(checkpoint, best_model_path)
-        print(f"New best model saved to {best_model_path}")
-    
-    return run_dir
+class EarlyStopping:
+    """Early stopping to prevent overfitting"""
+    def __init__(self, patience=7, min_delta=0.001, verbose=True):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.verbose = verbose
+        self.counter = 0
+        self.best_loss = None
+        self.early_stop = False
+        self.val_loss_min = np.Inf
 
-def load_checkpoint(checkpoint_path, model, optimizer=None, device='cpu'):
-    """
-    Load model checkpoint
-    Args:
-        checkpoint_path: Path to the checkpoint file
-        model: Model to load the checkpoint into
-        optimizer: Optimizer to load the checkpoint into (optional)
-        device: Device to load the model to
-    """
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    
-    # Load model state
-    model.load_state_dict(checkpoint['model_state_dict'])
-    model = model.to(device)
-    
-    # Load optimizer state if provided
-    if optimizer is not None and 'optimizer_state_dict' in checkpoint:
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    
-    return model, optimizer, checkpoint['epoch'], checkpoint['loss']
+    def __call__(self, val_loss, model, optimizer, epoch, args, checkpoint_dir=None):
+        if self.best_loss is None:
+            self.best_loss = val_loss
+            self.save_checkpoint(val_loss, model, optimizer, epoch, args, True, checkpoint_dir)
+        elif val_loss > self.best_loss - self.min_delta:
+            self.counter += 1
+            if self.verbose:
+                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            if self.counter >= self.patience:
+                self.early_stop = True
+        else:
+            self.best_loss = val_loss
+            self.save_checkpoint(val_loss, model, optimizer, epoch, args, True, checkpoint_dir)
+            self.counter = 0
+
+    def save_checkpoint(self, val_loss, model, optimizer, epoch, args, is_best=False, checkpoint_dir=None):
+        """Save model checkpoint"""
+        if checkpoint_dir is None:
+            checkpoint_dir = os.path.join(os.path.dirname(__file__), "checkpoints")
+        
+        # Create timestamped directory for this training run
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = os.path.join(checkpoint_dir, f"run_{timestamp}")
+        os.makedirs(run_dir, exist_ok=True)
+        
+        # Save training configuration
+        config = {
+            'epoch': epoch,
+            'loss': val_loss,
+            'args': vars(args)
+        }
+        with open(os.path.join(run_dir, 'config.json'), 'w') as f:
+            json.dump(config, f, indent=4)
+        
+        # Prepare checkpoint
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'loss': val_loss,
+            'args': vars(args)
+        }
+        
+        # Save regular checkpoint
+        checkpoint_path = os.path.join(run_dir, f"checkpoint_epoch_{epoch}.pt")
+        torch.save(checkpoint, checkpoint_path)
+        print(f"Saved checkpoint to {checkpoint_path}")
+        
+        # Save best model if needed
+        if is_best:
+            best_model_path = os.path.join(run_dir, "best_model.pt")
+            torch.save(checkpoint, best_model_path)
+            print(f"New best model saved to {best_model_path}")
+        
+        return run_dir
 
 def train_model(args):
     # Set device
@@ -185,8 +180,14 @@ def train_model(args):
     # Initialize optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     
+    # Initialize early stopping
+    early_stopping = EarlyStopping(
+        patience=args.patience,
+        min_delta=args.min_delta,
+        verbose=True
+    )
+    
     # Training loop
-    best_loss = float('inf')
     for epoch in range(args.num_epochs):
         model.train()
         epoch_loss = 0.0
@@ -224,26 +225,17 @@ def train_model(args):
         avg_loss = epoch_loss / len(train_loader)
         print(f"Epoch {epoch+1}/{args.num_epochs}, Average Loss: {avg_loss:.4f}")
         
-        # Save checkpoint
-        is_best = avg_loss < best_loss
-        if is_best:
-            best_loss = avg_loss
-        
-        run_dir = save_checkpoint(
-            model=model,
-            optimizer=optimizer,
-            epoch=epoch + 1,
-            loss=avg_loss,
-            args=args,
-            is_best=is_best
-        )
+        # Early stopping check
+        early_stopping(avg_loss, model, optimizer, epoch + 1, args)
+        if early_stopping.early_stop:
+            print("Early stopping triggered")
+            break
         
         # Clear memory after each epoch
         gc.collect()
     
     print("Training completed!")
-    print(f"Best loss: {best_loss:.4f}")
-    print(f"All checkpoints and best model saved to {run_dir}")
+    print(f"Best loss: {early_stopping.best_loss:.4f}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train CLAM model for EGFR mutation prediction")
@@ -258,15 +250,19 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=4, help="Number of workers for data loading")
     
     # Model arguments
-    parser.add_argument("--model_size", type=str, default="small", choices=["small", "big"], help="Model size")
+    parser.add_argument("--model_size", type=str, default="big", choices=["small", "big"], help="Model size")
     parser.add_argument("--dropout", type=float, default=0.25, help="Dropout rate")
     parser.add_argument("--k_sample", type=int, default=8, help="Number of attention heads")
     parser.add_argument("--n_classes", type=int, default=2, help="Number of classes")
     
     # Training arguments
-    parser.add_argument("--num_epochs", type=int, default=10, help="Number of training epochs")
+    parser.add_argument("--num_epochs", type=int, default=50, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
     parser.add_argument("--learning_rate", type=float, default=0.0001, help="Learning rate")
+    
+    # Early stopping arguments
+    parser.add_argument("--patience", type=int, default=7, help="Number of epochs to wait before early stopping")
+    parser.add_argument("--min_delta", type=float, default=0.001, help="Minimum change in loss to qualify as an improvement")
     
     args = parser.parse_args()
     train_model(args) 
