@@ -72,7 +72,7 @@ class EarlyStopping:
         self.counter = 0
         self.best_loss = None
         self.early_stop = False
-        self.val_loss_min = np.Inf
+        self.val_loss_min = np.inf
 
     def __call__(self, val_loss, model, optimizer, epoch, args, checkpoint_dir=None):
         if self.best_loss is None:
