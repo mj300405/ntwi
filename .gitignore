@@ -3,6 +3,12 @@
 /extras
 /train
 
+# Data and checkpoints
+clam/checkpoints/*
+!clam/checkpoints/.gitkeep
+dataset_csv/*
+!dataset_csv/.gitkeep
+
 # System files
 .DS_Store
 Thumbs.db
