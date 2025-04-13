@@ -10,6 +10,9 @@ from datetime import datetime
 import json
 from pathlib import Path
 import gc
+import matplotlib.pyplot as plt
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_curve, auc
+import seaborn as sns
 
 from clam.models.clam import CLAM
 from clam.datasets.egfr_dataset import EGFRBagDataset
@@ -73,8 +76,12 @@ class EarlyStopping:
         self.best_loss = None
         self.early_stop = False
         self.val_loss_min = np.inf
+        self.current_metrics = None  # Store current metrics
 
-    def __call__(self, val_loss, model, optimizer, epoch, args, checkpoint_dir=None):
+    def __call__(self, val_loss, model, optimizer, epoch, args, checkpoint_dir=None, metrics=None):
+        if metrics is not None:
+            self.current_metrics = metrics
+            
         if self.best_loss is None:
             self.best_loss = val_loss
             self.save_checkpoint(val_loss, model, optimizer, epoch, args, True, checkpoint_dir)
@@ -98,6 +105,10 @@ class EarlyStopping:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         run_dir = os.path.join(checkpoint_dir, f"run_{timestamp}")
         os.makedirs(run_dir, exist_ok=True)
+        
+        # Create best_models directory if it doesn't exist
+        best_models_dir = os.path.join(checkpoint_dir, "best_models")
+        os.makedirs(best_models_dir, exist_ok=True)
         
         # Save training configuration
         config = {
@@ -123,12 +134,93 @@ class EarlyStopping:
         print(f"Saved checkpoint to {checkpoint_path}")
         
         # Save best model if needed
-        if is_best:
+        if is_best and self.current_metrics is not None:
+            # Save in run directory
             best_model_path = os.path.join(run_dir, "best_model.pt")
             torch.save(checkpoint, best_model_path)
             print(f"New best model saved to {best_model_path}")
+            
+            # Create filename with metrics
+            metrics_str = f"f1_{self.current_metrics['f1']:.3f}_acc_{self.current_metrics['accuracy']:.3f}_auc_{self.current_metrics['auc']:.3f}"
+            best_model_name = f"best_model_{timestamp}_{metrics_str}.pt"
+            
+            # Save in best_models directory with timestamp and metrics
+            best_model_path = os.path.join(best_models_dir, best_model_name)
+            torch.save(checkpoint, best_model_path)
+            print(f"New best model also saved to {best_model_path}")
+            
+            # Create/update symlink to latest best model
+            latest_best_path = os.path.join(best_models_dir, "latest_best_model.pt")
+            if os.path.exists(latest_best_path):
+                os.remove(latest_best_path)
+            os.symlink(best_model_name, latest_best_path)
+            print(f"Updated symlink to latest best model at {latest_best_path}")
         
         return run_dir
+
+def calculate_metrics(y_true, y_pred, y_prob):
+    """Calculate classification metrics"""
+    accuracy = accuracy_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred, average='binary')
+    recall = recall_score(y_true, y_pred, average='binary')
+    f1 = f1_score(y_true, y_pred, average='binary')
+    conf_matrix = confusion_matrix(y_true, y_pred)
+    
+    # Calculate ROC curve and AUC
+    fpr, tpr, _ = roc_curve(y_true, y_prob)
+    auc_score = auc(fpr, tpr)
+    
+    return {
+        'accuracy': accuracy,
+        'precision': precision,
+        'recall': recall,
+        'f1': f1,
+        'confusion_matrix': conf_matrix,
+        'fpr': fpr,
+        'tpr': tpr,
+        'auc': auc_score
+    }
+
+def plot_metrics(metrics, epoch, run_dir):
+    """Plot and save metrics"""
+    # Create metrics directory
+    metrics_dir = os.path.join(run_dir, 'metrics')
+    os.makedirs(metrics_dir, exist_ok=True)
+    
+    # Plot confusion matrix
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(metrics['confusion_matrix'], annot=True, fmt='d', cmap='Blues')
+    plt.title(f'Confusion Matrix - Epoch {epoch}')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.savefig(os.path.join(metrics_dir, f'confusion_matrix_epoch_{epoch}.png'))
+    plt.close()
+    
+    # Plot ROC curve
+    plt.figure(figsize=(8, 6))
+    plt.plot(metrics['fpr'], metrics['tpr'], label=f'AUC = {metrics["auc"]:.3f}')
+    plt.plot([0, 1], [0, 1], 'k--')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title(f'ROC Curve - Epoch {epoch}')
+    plt.legend()
+    plt.savefig(os.path.join(metrics_dir, f'roc_curve_epoch_{epoch}.png'))
+    plt.close()
+    
+    # Save metrics to JSON
+    metrics_to_save = {
+        'accuracy': metrics['accuracy'],
+        'precision': metrics['precision'],
+        'recall': metrics['recall'],
+        'f1': metrics['f1'],
+        'auc': metrics['auc'],
+        'confusion_matrix': metrics['confusion_matrix'].tolist()
+    }
+    
+    with open(os.path.join(metrics_dir, f'metrics_epoch_{epoch}.json'), 'w') as f:
+        json.dump(metrics_to_save, f, indent=4)
+    
+    return metrics_dir
 
 def train_model(args):
     # Set device
@@ -174,7 +266,6 @@ def train_model(args):
         batch_size=args.batch_size, 
         shuffle=True,
         num_workers=args.num_workers,
-        pin_memory=True if device.type == 'mps' else False
     )
     
     # Initialize optimizer
@@ -187,10 +278,20 @@ def train_model(args):
         verbose=True
     )
     
+    # Initialize metrics tracking
+    all_metrics = []
+    best_metrics = None
+    best_epoch = 0
+    
     # Training loop
     for epoch in range(args.num_epochs):
         model.train()
         epoch_loss = 0.0
+        
+        # Initialize lists for metrics
+        all_labels = []
+        all_preds = []
+        all_probs = []
         
         # Progress bar
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.num_epochs}")
@@ -215,6 +316,11 @@ def train_model(args):
             epoch_loss += loss.detach().item()
             pbar.set_postfix({"loss": loss.detach().item()})
             
+            # Collect predictions for metrics
+            all_labels.extend(labels.cpu().numpy())
+            all_preds.extend(Y_hat.detach().cpu().numpy())
+            all_probs.extend(Y_prob[:, 1].detach().cpu().numpy())  # Probability of positive class
+            
             # Clear memory
             del data, labels, logits, Y_prob, Y_hat, A, loss
             if device.type == 'mps':
@@ -225,8 +331,28 @@ def train_model(args):
         avg_loss = epoch_loss / len(train_loader)
         print(f"Epoch {epoch+1}/{args.num_epochs}, Average Loss: {avg_loss:.4f}")
         
+        # Calculate metrics
+        metrics = calculate_metrics(all_labels, all_preds, all_probs)
+        all_metrics.append(metrics)
+        
+        # Print metrics
+        print(f"Accuracy: {metrics['accuracy']:.4f}")
+        print(f"Precision: {metrics['precision']:.4f}")
+        print(f"Recall: {metrics['recall']:.4f}")
+        print(f"F1 Score: {metrics['f1']:.4f}")
+        print(f"AUC: {metrics['auc']:.4f}")
+        
+        # Save metrics plots
+        run_dir = early_stopping.save_checkpoint(avg_loss, model, optimizer, epoch + 1, args, metrics=metrics)
+        metrics_dir = plot_metrics(metrics, epoch + 1, run_dir)
+        
+        # Update best metrics if needed
+        if best_metrics is None or metrics['f1'] > best_metrics['f1']:
+            best_metrics = metrics
+            best_epoch = epoch + 1
+        
         # Early stopping check
-        early_stopping(avg_loss, model, optimizer, epoch + 1, args)
+        early_stopping(avg_loss, model, optimizer, epoch + 1, args, metrics=metrics)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
@@ -236,6 +362,35 @@ def train_model(args):
     
     print("Training completed!")
     print(f"Best loss: {early_stopping.best_loss:.4f}")
+    print(f"Best F1 score: {best_metrics['f1']:.4f} at epoch {best_epoch}")
+    print(f"Best accuracy: {best_metrics['accuracy']:.4f}")
+    print(f"Best precision: {best_metrics['precision']:.4f}")
+    print(f"Best recall: {best_metrics['recall']:.4f}")
+    print(f"Best AUC: {best_metrics['auc']:.4f}")
+    
+    # Save final metrics summary
+    final_metrics = {
+        'best_epoch': best_epoch,
+        'best_metrics': {
+            'accuracy': float(best_metrics['accuracy']),
+            'precision': float(best_metrics['precision']),
+            'recall': float(best_metrics['recall']),
+            'f1': float(best_metrics['f1']),
+            'auc': float(best_metrics['auc']),
+            'confusion_matrix': best_metrics['confusion_matrix'].tolist()
+        },
+        'all_metrics': [{
+            'epoch': i+1,
+            'accuracy': float(m['accuracy']),
+            'precision': float(m['precision']),
+            'recall': float(m['recall']),
+            'f1': float(m['f1']),
+            'auc': float(m['auc'])
+        } for i, m in enumerate(all_metrics)]
+    }
+    
+    with open(os.path.join(run_dir, 'metrics', 'final_metrics.json'), 'w') as f:
+        json.dump(final_metrics, f, indent=4)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train CLAM model for EGFR mutation prediction")

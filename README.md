@@ -1,6 +1,6 @@
-# CLAM for EGFR Mutation Prediction
+# CLAM: Clustering-constrained Attention Multiple Instance Learning
 
-This repository implements a Clustering-constrained Attention Multiple Instance Learning (CLAM) model for predicting EGFR mutation status from whole slide images (WSIs) of lung cancer tissue.
+This repository contains a PyTorch implementation of the CLAM (Clustering-constrained Attention Multiple Instance Learning) model for EGFR mutation prediction in histopathology images.
 
 ## Features
 
@@ -36,24 +36,39 @@ This repository implements a Clustering-constrained Attention Multiple Instance 
 
 ## Installation
 
-We recommend using `uv`, a fast Python package installer and resolver, for setting up the environment. For detailed installation instructions, see the [Installation Guide](clam/docs/installation.md).
+### Using uv (Recommended)
 
-Quick start:
-
+1. Install uv:
 ```bash
-# Install uv
-pip install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
 
-# Clone the repository
-git clone https://github.com/yourusername/clam-egfr.git
-cd clam-egfr
-
-# Create and activate virtual environment
+2. Create a virtual environment and install dependencies:
+```bash
 uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate  # On Unix/macOS
+# OR
+.venv\Scripts\activate  # On Windows
+```
 
-# Install dependencies
-uv pip install -r requirements.txt
+3. Install dependencies with PyTorch support:
+```bash
+uv pip install --pre --extra-index-url https://download.pytorch.org/whl/nightly/cpu --index-strategy unsafe-best-match -r requirements.txt
+```
+
+### Using pip (Alternative)
+
+1. Create a virtual environment:
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Unix/macOS
+# OR
+.venv\Scripts\activate  # On Windows
+```
+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
 ```
 
 ## Data Preparation
@@ -84,49 +99,27 @@ Each patient folder should contain image tiles extracted from whole slide images
 
 ### Training
 
-To train the model with default settings:
+To train the model:
 
 ```bash
-python -m clam.train
+python clam/train.py --data_dir /path/to/data --model_size big
 ```
 
-This will:
-- Use the "big" model architecture by default
-- Train for up to 50 epochs
-- Use early stopping with patience of 7 epochs
-- Save checkpoints and the best model
+### Evaluation
 
-#### Advanced Training Options
-
-You can customize the training with various command-line arguments:
+To evaluate the model:
 
 ```bash
-python -m clam.train \
-  --data_dir /path/to/data \
-  --split train \
-  --model_size big \
-  --num_epochs 100 \
-  --batch_size 1 \
-  --learning_rate 0.0001 \
-  --patience 10 \
-  --min_delta 0.0005 \
-  --max_tiles 100 \
-  --num_workers 4
-```
-
-### Testing
-
-To test the model on a test dataset:
-
-```bash
-python -m clam.train --data_dir /path/to/test/data --split test
+python clam/evaluate.py --model_path /path/to/model.pt --data_dir /path/to/test_data
 ```
 
 ## Documentation
 
-- [Installation Guide](clam/docs/installation.md): Detailed setup instructions using `uv`
-- [Model Architecture](clam/docs/model_architecture.md): Details about the CLAM model architecture
-- [Training Documentation](clam/docs/training.md): Comprehensive guide to training the model
+Detailed documentation is available in the `docs` directory:
+
+- [Model Architecture](docs/model_architecture.md)
+- [Training Process](docs/training.md)
+- [Installation Guide](docs/installation.md)
 
 ## Apple Metal Acceleration
 

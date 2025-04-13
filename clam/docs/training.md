@@ -130,7 +130,6 @@ If you encounter memory issues:
 
 For optimal performance on Apple Metal:
 - The script automatically uses MPS acceleration when available
-- `pin_memory` is enabled for MPS to improve data transfer
 - Garbage collection is performed after each batch and epoch
 
 ### Data Directory Structure
