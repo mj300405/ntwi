@@ -12,12 +12,13 @@ class EGFRBagDataset(Dataset):
     Each sample is a directory containing multiple PNG files (tiles).
     Optimized for Apple Metal (MPS) acceleration.
     """
-    def __init__(self, data_dir=None, transform=None, max_tiles=100):
+    def __init__(self, data_dir=None, transform=None, max_tiles=100, include_augmented=True):
         """
         Args:
             data_dir: Directory containing the data (if None, will use dummy data)
             transform: Optional transform to be applied on a sample (ignored)
             max_tiles: Maximum number of tiles to use per slide
+            include_augmented: Whether to include augmented data folders
         """
         self.data_dir = Path(data_dir) if data_dir else None
         self.max_tiles = max_tiles
@@ -44,24 +45,36 @@ class EGFRBagDataset(Dataset):
             self.labels = []
             
             # Load positive samples
-            positive_dir = self.data_dir / "EGFR_positive"
-            if positive_dir.exists():
-                for slide_dir in positive_dir.iterdir():
-                    if slide_dir.is_dir():
-                        tile_paths = list(slide_dir.glob("*.png"))
-                        if tile_paths:  # Only add if we found valid tiles
-                            self.slide_paths.append(tile_paths)
-                            self.labels.append(1)  # 1 for positive
+            positive_dirs = ["EGFR_positive"]
+            if include_augmented:
+                positive_dirs.append("EGFR_positive_aug")
+                
+            for dir_name in positive_dirs:
+                positive_dir = self.data_dir / dir_name
+                if positive_dir.exists():
+                    print(f"Loading positive samples from {dir_name}")
+                    for slide_dir in positive_dir.iterdir():
+                        if slide_dir.is_dir():
+                            tile_paths = list(slide_dir.glob("*.png"))
+                            if tile_paths:  # Only add if we found valid tiles
+                                self.slide_paths.append(tile_paths)
+                                self.labels.append(1)  # 1 for positive
             
             # Load negative samples
-            negative_dir = self.data_dir / "EGFR_negative"
-            if negative_dir.exists():
-                for slide_dir in negative_dir.iterdir():
-                    if slide_dir.is_dir():
-                        tile_paths = list(slide_dir.glob("*.png"))
-                        if tile_paths:  # Only add if we found valid tiles
-                            self.slide_paths.append(tile_paths)
-                            self.labels.append(0)  # 0 for negative
+            negative_dirs = ["EGFR_negative"]
+            if include_augmented:
+                negative_dirs.append("EGFR_negative_aug")
+                
+            for dir_name in negative_dirs:
+                negative_dir = self.data_dir / dir_name
+                if negative_dir.exists():
+                    print(f"Loading negative samples from {dir_name}")
+                    for slide_dir in negative_dir.iterdir():
+                        if slide_dir.is_dir():
+                            tile_paths = list(slide_dir.glob("*.png"))
+                            if tile_paths:  # Only add if we found valid tiles
+                                self.slide_paths.append(tile_paths)
+                                self.labels.append(0)  # 0 for negative
             
             if not self.slide_paths:
                 raise ValueError(f"No valid slides found in {data_dir}")

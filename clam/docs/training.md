@@ -1,6 +1,94 @@
-# Training the CLAM Model
+# Training Documentation
 
-This document provides instructions for training the CLAM (Clustering-constrained Attention Multiple Instance Learning) model for EGFR mutation prediction.
+## Overview
+
+This document describes the training process for the CLAM (Clustering-constrained Attention Multiple Instance Learning) model for EGFR mutation prediction. The model is designed to predict EGFR mutation status from whole slide images (WSIs) of lung adenocarcinoma.
+
+## Data Structure
+
+The training data should be organized in the following directory structure:
+
+```
+data_dir/
+├── EGFR_positive/           # Required: Contains positive samples
+├── EGFR_negative/           # Required: Contains negative samples
+├── EGFR_positive_aug/       # Optional: Contains augmented positive samples
+├── EGFR_negative_aug/       # Optional: Contains augmented negative samples
+├── EGFR_positive_cnn/       # Optional: Contains CNN-processed positive samples
+└── EGFR_negative_cnn/       # Optional: Contains CNN-processed negative samples
+```
+
+Each sample directory should contain multiple PNG files (tiles) extracted from the whole slide image.
+
+## Training Process
+
+The training process uses the following components:
+
+1. **Data Loading**: The `EGFRBagDataset` class loads data from the specified directories. By default, it includes both regular and augmented data folders.
+
+2. **Model Architecture**: The CLAM model uses attention mechanisms to identify important regions in the slide images.
+
+3. **Training Loop**: The model is trained for a specified number of epochs with early stopping to prevent overfitting.
+
+4. **Checkpointing**: The best model is saved in the `checkpoints/best_models` directory with a filename that includes performance metrics.
+
+## Command Line Arguments
+
+The training script accepts the following arguments:
+
+### Data Arguments
+- `--data_dir`: Path to the data directory (default: project_root/train)
+- `--split`: Data split to use (default: train)
+- `--max_tiles`: Maximum number of tiles per bag (default: 100)
+- `--num_workers`: Number of workers for data loading (default: 4)
+- `--include_augmented`: Include augmented data folders in training (default: True)
+
+### Model Arguments
+- `--model_size`: Model size (default: big)
+- `--dropout`: Dropout rate (default: 0.25)
+- `--k_sample`: Number of attention heads (default: 8)
+- `--n_classes`: Number of classes (default: 2)
+
+### Training Arguments
+- `--num_epochs`: Number of training epochs (default: 50)
+- `--batch_size`: Batch size (default: 1)
+- `--learning_rate`: Learning rate (default: 0.0001)
+
+### Early Stopping Arguments
+- `--patience`: Number of epochs to wait before early stopping (default: 7)
+- `--min_delta`: Minimum change in loss to qualify as an improvement (default: 0.001)
+
+## Hardware Acceleration
+
+The script automatically uses Apple Metal (MPS) acceleration when available. This significantly speeds up training on Apple Silicon Macs.
+
+## Output
+
+The training process generates the following outputs:
+
+1. **Checkpoints**: Regular checkpoints are saved in `checkpoints/run_TIMESTAMP/`.
+2. **Best Model**: The best model is saved in `checkpoints/best_models/` with a filename that includes performance metrics.
+3. **Metrics**: Training metrics are saved in `checkpoints/run_TIMESTAMP/metrics/`.
+4. **Plots**: Confusion matrices and ROC curves are saved in `checkpoints/run_TIMESTAMP/metrics/`.
+
+## Example Usage
+
+```bash
+# Train with default settings (includes augmented data)
+python -m clam.train
+
+# Train without augmented data
+python -m clam.train --no-include_augmented
+
+# Train with custom settings
+python -m clam.train --data_dir /path/to/data --num_epochs 100 --learning_rate 0.0005
+```
+
+## Augmented Data
+
+The training process can optionally include augmented data from the `EGFR_positive_aug` and `EGFR_negative_aug` directories. This augmented data can help improve model performance by providing more diverse training samples. By default, augmented data is included in the training process.
+
+To disable the use of augmented data, use the `--no-include_augmented` flag when running the training script.
 
 ## Prerequisites
 
@@ -20,6 +108,10 @@ project_root/
 │   │   └── [patient folders with image tiles]
 │   ├── EGFR_negative/
 │   │   └── [patient folders with image tiles]
+│   ├── EGFR_positive_aug/ (optional)
+│   │   └── [patient folders with augmented image tiles]
+│   ├── EGFR_negative_aug/ (optional)
+│   │   └── [patient folders with augmented image tiles]
 │   ├── EGFR_positive_cnn/ (optional)
 │   │   └── [patient folders with image tiles]
 │   └── EGFR_negative_cnn/ (optional)
@@ -31,7 +123,7 @@ project_root/
         └── [patient folders with image tiles]
 ```
 
-Each patient folder should contain image tiles extracted from whole slide images.
+Each patient folder should contain image tiles extracted from whole slide images. The augmented data folders (`EGFR_positive_aug` and `EGFR_negative_aug`) should contain transformed versions of the original tiles, which can help improve model performance by providing more diverse training samples.
 
 ## Training Process
 

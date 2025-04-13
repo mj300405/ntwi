@@ -31,7 +31,7 @@ def validate_data_paths(data_dir, split='train'):
     # Define expected directories based on split
     if split == 'train':
         required_dirs = ['EGFR_positive', 'EGFR_negative']
-        optional_dirs = ['EGFR_positive_cnn', 'EGFR_negative_cnn']
+        optional_dirs = ['EGFR_positive_aug', 'EGFR_negative_aug', 'EGFR_positive_cnn', 'EGFR_negative_cnn']
     else:  # test
         required_dirs = ['C-S-EGFR_positive', 'C-S-EGFR_negative']
         optional_dirs = []
@@ -238,6 +238,8 @@ def train_model(args):
             print("data_dir/")
             print("├── EGFR_positive/")
             print("├── EGFR_negative/")
+            print("├── EGFR_positive_aug/ (optional)")
+            print("├── EGFR_negative_aug/ (optional)")
             print("├── EGFR_positive_cnn/ (optional)")
             print("└── EGFR_negative_cnn/ (optional)")
         else:
@@ -259,7 +261,8 @@ def train_model(args):
     # Initialize dataset and dataloader
     train_dataset = EGFRBagDataset(
         data_dir=args.data_dir,
-        max_tiles=args.max_tiles
+        max_tiles=args.max_tiles,
+        include_augmented=args.include_augmented
     )
     train_loader = DataLoader(
         train_dataset, 
@@ -403,6 +406,8 @@ if __name__ == "__main__":
                        help="Data split to use (default: train)")
     parser.add_argument("--max_tiles", type=int, default=100, help="Maximum number of tiles per bag")
     parser.add_argument("--num_workers", type=int, default=4, help="Number of workers for data loading")
+    parser.add_argument("--include_augmented", action="store_true", default=True,
+                       help="Include augmented data folders in training")
     
     # Model arguments
     parser.add_argument("--model_size", type=str, default="big", choices=["small", "big"], help="Model size")
@@ -411,9 +416,9 @@ if __name__ == "__main__":
     parser.add_argument("--n_classes", type=int, default=2, help="Number of classes")
     
     # Training arguments
-    parser.add_argument("--num_epochs", type=int, default=50, help="Number of training epochs")
+    parser.add_argument("--num_epochs", type=int, default=20, help="Number of training epochs")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
-    parser.add_argument("--learning_rate", type=float, default=0.0001, help="Learning rate")
+    parser.add_argument("--learning_rate", type=float, default=0.0005, help="Learning rate")
     
     # Early stopping arguments
     parser.add_argument("--patience", type=int, default=7, help="Number of epochs to wait before early stopping")
