@@ -6,7 +6,7 @@ This document provides detailed instructions for setting up the CLAM model envir
 
 - Python 3.8 or higher
 - `uv` package installer
-- Apple Silicon Mac (M1/M2) for Metal acceleration
+- Apple Silicon Mac (M1/M2/M3/M4) for Metal acceleration
 
 ## Installing uv
 
@@ -80,7 +80,7 @@ You should see output indicating the PyTorch version and whether MPS (Metal Perf
 If MPS is not available, ensure:
 - You're using PyTorch 2.0 or higher
 - You're on macOS 12.3 or higher
-- You're using an Apple Silicon Mac (M1/M2)
+- You're using an Apple Silicon Mac (M1/M2/M3)
 
 ### Package Installation Issues
 
@@ -95,13 +95,6 @@ uv pip install torch
 uv pip install torchvision
 # ... and so on
 ```
-
-### Memory Issues During Training
-
-If you encounter memory issues during training:
-- Reduce the `--max_tiles` parameter
-- Reduce the `--batch_size` parameter (already set to 1 by default)
-- Close other memory-intensive applications
 
 ## Alternative Installation Methods
 
@@ -137,7 +130,6 @@ pip install -r requirements.txt
 ## Next Steps
 
 After installation, you can:
-
 1. Prepare your data according to the [data preparation guide](training.md#data-preparation)
 2. Start training the model using the [training instructions](training.md#training-process)
 3. Explore the [model architecture](model_architecture.md) to understand how CLAM works 

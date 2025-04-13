@@ -32,69 +32,40 @@ The bag classifier makes the final prediction:
 
 The model is available in two sizes:
 
-### Small Model (Default in previous versions)
+### Small Model
 - Fewer parameters
 - Faster training
 - Suitable for smaller datasets or limited computational resources
 
-### Big Model (Default in current version)
+### Big Model (Default)
 - More parameters
 - Better performance on complex datasets
 - Recommended for most use cases
 - Improved feature extraction and attention mechanisms
 
-## Training Process
-
-### Early Stopping
-
-The model uses early stopping to prevent overfitting:
-- Monitors validation loss during training
-- Stops training if loss doesn't improve for a specified number of epochs
-- Saves the best model based on lowest loss
-- Default patience: 7 epochs
-- Default minimum improvement: 0.001
-
-### Checkpointing
-
-The model saves checkpoints during training:
-- Regular checkpoints after each epoch
-- Best model checkpoint based on lowest loss
-- All checkpoints include model state, optimizer state, and training configuration
-
-## Memory Optimization
-
-The model is optimized for Apple Metal (MPS) acceleration:
-- Efficient memory management
-- Garbage collection after each batch and epoch
-- Pin memory enabled for faster data transfer
-- Automatic device selection (MPS if available, CPU otherwise)
-
-## Hyperparameters
-
-Key hyperparameters for the model:
+## Architecture Details
 
 ### Feature Extraction
 - Input size: 224x224 pixels
 - Feature dimension: 1024
+- Backbone: ResNet-50 pre-trained on ImageNet
 
 ### Attention Mechanism
-- Number of attention heads: 8 (default)
+- Number of attention heads: 8
 - Gating mechanism: Enabled by default
+- Attention scores: Softmax-normalized weights for each tile
 
-### Training
-- Learning rate: 0.0001 (default)
-- Batch size: 1 (default)
-- Dropout rate: 0.25 (default)
-- Number of epochs: 50 (default)
-- Early stopping patience: 7 (default)
-- Early stopping minimum delta: 0.001 (default)
+### Classification Head
+- Input: Weighted sum of features
+- Hidden layers: Fully connected layers with dropout
+- Output: Binary classification (EGFR mutation status)
+- Activation: Sigmoid for probability output
 
-## Usage
+## Memory Considerations
 
-The model is designed to be used with the training script:
+The model architecture is designed with memory efficiency in mind:
+- Feature extraction is performed on individual tiles
+- Attention mechanism processes features in batches
+- Memory usage scales with the number of tiles and batch size
 
-```bash
-python -m clam.train
-```
-
-This will use the big model by default with early stopping enabled. For more details on training options, see the [Training Documentation](training.md). 
+For implementation details and training parameters, see the [Training Documentation](training.md). 
