@@ -346,7 +346,7 @@ def train_model(args):
         print(f"AUC: {metrics['auc']:.4f}")
         
         # Save metrics plots
-        run_dir = early_stopping.save_checkpoint(avg_loss, model, optimizer, epoch + 1, args, metrics=metrics)
+        run_dir = early_stopping.save_checkpoint(avg_loss, model, optimizer, epoch + 1, args)
         metrics_dir = plot_metrics(metrics, epoch + 1, run_dir)
         
         # Update best metrics if needed
@@ -355,7 +355,7 @@ def train_model(args):
             best_epoch = epoch + 1
         
         # Early stopping check
-        early_stopping(avg_loss, model, optimizer, epoch + 1, args, metrics=metrics)
+        early_stopping(avg_loss, model, optimizer, epoch + 1, args)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
