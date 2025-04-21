@@ -326,7 +326,7 @@ def train_model(args):
             logits, Y_prob, Y_hat, A = model(data)
             
             # Calculate loss
-            loss = model.calculate_loss(logits, labels)
+            loss = model.calculate_loss(logits, labels, A)
             
             # Backward pass
             loss.backward()
@@ -369,7 +369,7 @@ def train_model(args):
                 logits, Y_prob, Y_hat, A = model(data)
                 
                 # Calculate loss
-                loss = model.calculate_loss(logits, labels)
+                loss = model.calculate_loss(logits, labels, A)
                 
                 # Update progress bar
                 val_loss += loss.detach().item()

@@ -180,16 +180,19 @@ class CLAM(nn.Module):
         
         return logits, Y_prob, Y_hat, A
     
-    def calculate_loss(self, logits, labels):
+    def calculate_loss(self, logits, labels, attention_weights=None):
         # Calculate instance-level loss
         instance_loss = self.instance_loss_fn(logits, labels)
         
-        # Add attention regularization to encourage more uniform attention
-        # This helps prevent the model from focusing too much on a few instances
-        attention_entropy = -torch.mean(torch.sum(A.mean(dim=1) * torch.log(A.mean(dim=1) + 1e-10), dim=1))
-        attention_loss = -attention_entropy  # Maximize entropy = more uniform attention
-        
-        # Combine losses with a weight for the attention regularization
-        total_loss = instance_loss + 0.1 * attention_loss
+        if attention_weights is not None:
+            # Add attention regularization to encourage more uniform attention
+            # This helps prevent the model from focusing too much on a few instances
+            attention_entropy = -torch.mean(torch.sum(attention_weights.mean(dim=1) * torch.log(attention_weights.mean(dim=1) + 1e-10), dim=1))
+            attention_loss = -attention_entropy  # Maximize entropy = more uniform attention
+            
+            # Combine losses with a weight for the attention regularization
+            total_loss = instance_loss + 0.1 * attention_loss
+        else:
+            total_loss = instance_loss
         
         return total_loss 
