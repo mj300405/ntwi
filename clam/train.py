@@ -14,8 +14,8 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_curve, auc
 import seaborn as sns
 
-from clam.models.clam import CLAM
-from clam.datasets.egfr_dataset import EGFRBagDataset
+from models.clam import CLAM
+from datasets.egfr_dataset import EGFRBagDataset
 
 def validate_data_paths(data_dir, split='train'):
     """
@@ -258,16 +258,34 @@ def train_model(args):
     )
     model = model.to(device)
     
-    # Initialize dataset and dataloader
+    # Initialize datasets and dataloaders
     train_dataset = EGFRBagDataset(
         data_dir=args.data_dir,
         max_tiles=args.max_tiles,
-        include_augmented=args.include_augmented
+        include_augmented=args.include_augmented,
+        val_split=args.val_split,
+        is_validation=False
     )
+    
+    val_dataset = EGFRBagDataset(
+        data_dir=args.data_dir,
+        max_tiles=args.max_tiles,
+        include_augmented=args.include_augmented,
+        val_split=args.val_split,
+        is_validation=True
+    )
+    
     train_loader = DataLoader(
         train_dataset, 
         batch_size=args.batch_size, 
         shuffle=True,
+        num_workers=args.num_workers,
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
         num_workers=args.num_workers,
     )
     
@@ -288,18 +306,17 @@ def train_model(args):
     
     # Training loop
     for epoch in range(args.num_epochs):
+        # Training phase
         model.train()
-        epoch_loss = 0.0
+        train_loss = 0.0
+        train_labels = []
+        train_preds = []
+        train_probs = []
         
-        # Initialize lists for metrics
-        all_labels = []
-        all_preds = []
-        all_probs = []
+        # Progress bar for training
+        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.num_epochs} [Train]")
         
-        # Progress bar
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.num_epochs}")
-        
-        for batch_idx, (data, labels) in enumerate(pbar):
+        for batch_idx, (data, labels) in enumerate(train_pbar):
             # Move data to device
             data = data.to(device)
             labels = labels.to(device)
@@ -316,46 +333,94 @@ def train_model(args):
             optimizer.step()
             
             # Update progress bar
-            epoch_loss += loss.detach().item()
-            pbar.set_postfix({"loss": loss.detach().item()})
+            train_loss += loss.detach().item()
+            train_pbar.set_postfix({"loss": loss.detach().item()})
             
             # Collect predictions for metrics
-            all_labels.extend(labels.cpu().numpy())
-            all_preds.extend(Y_hat.detach().cpu().numpy())
-            all_probs.extend(Y_prob[:, 1].detach().cpu().numpy())  # Probability of positive class
+            train_labels.extend(labels.cpu().numpy())
+            train_preds.extend(Y_hat.detach().cpu().numpy())
+            train_probs.extend(Y_prob[:, 1].detach().cpu().numpy())
             
             # Clear memory
             del data, labels, logits, Y_prob, Y_hat, A, loss
             if device.type == 'mps':
-                # Force garbage collection for MPS
                 gc.collect()
         
-        # Calculate average loss for the epoch
-        avg_loss = epoch_loss / len(train_loader)
-        print(f"Epoch {epoch+1}/{args.num_epochs}, Average Loss: {avg_loss:.4f}")
+        # Calculate average training loss
+        avg_train_loss = train_loss / len(train_loader)
         
-        # Calculate metrics
-        metrics = calculate_metrics(all_labels, all_preds, all_probs)
-        all_metrics.append(metrics)
+        # Validation phase
+        model.eval()
+        val_loss = 0.0
+        val_labels = []
+        val_preds = []
+        val_probs = []
+        
+        with torch.no_grad():
+            # Progress bar for validation
+            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.num_epochs} [Val]")
+            
+            for batch_idx, (data, labels) in enumerate(val_pbar):
+                # Move data to device
+                data = data.to(device)
+                labels = labels.to(device)
+                
+                # Forward pass
+                logits, Y_prob, Y_hat, A = model(data)
+                
+                # Calculate loss
+                loss = model.calculate_loss(logits, labels)
+                
+                # Update progress bar
+                val_loss += loss.detach().item()
+                val_pbar.set_postfix({"loss": loss.detach().item()})
+                
+                # Collect predictions for metrics
+                val_labels.extend(labels.cpu().numpy())
+                val_preds.extend(Y_hat.detach().cpu().numpy())
+                val_probs.extend(Y_prob[:, 1].detach().cpu().numpy())
+                
+                # Clear memory
+                del data, labels, logits, Y_prob, Y_hat, A, loss
+                if device.type == 'mps':
+                    gc.collect()
+        
+        # Calculate average validation loss
+        avg_val_loss = val_loss / len(val_loader)
+        
+        # Calculate metrics for both training and validation
+        train_metrics = calculate_metrics(train_labels, train_preds, train_probs)
+        val_metrics = calculate_metrics(val_labels, val_preds, val_probs)
         
         # Print metrics
-        print(f"Accuracy: {metrics['accuracy']:.4f}")
-        print(f"Precision: {metrics['precision']:.4f}")
-        print(f"Recall: {metrics['recall']:.4f}")
-        print(f"F1 Score: {metrics['f1']:.4f}")
-        print(f"AUC: {metrics['auc']:.4f}")
+        print(f"\nEpoch {epoch+1}/{args.num_epochs}")
+        print("Training:")
+        print(f"Loss: {avg_train_loss:.4f}")
+        print(f"Accuracy: {train_metrics['accuracy']:.4f}")
+        print(f"Precision: {train_metrics['precision']:.4f}")
+        print(f"Recall: {train_metrics['recall']:.4f}")
+        print(f"F1 Score: {train_metrics['f1']:.4f}")
+        print(f"AUC: {train_metrics['auc']:.4f}")
+        
+        print("\nValidation:")
+        print(f"Loss: {avg_val_loss:.4f}")
+        print(f"Accuracy: {val_metrics['accuracy']:.4f}")
+        print(f"Precision: {val_metrics['precision']:.4f}")
+        print(f"Recall: {val_metrics['recall']:.4f}")
+        print(f"F1 Score: {val_metrics['f1']:.4f}")
+        print(f"AUC: {val_metrics['auc']:.4f}")
         
         # Save metrics plots
-        run_dir = early_stopping.save_checkpoint(avg_loss, model, optimizer, epoch + 1, args)
-        metrics_dir = plot_metrics(metrics, epoch + 1, run_dir)
+        run_dir = early_stopping.save_checkpoint(avg_val_loss, model, optimizer, epoch + 1, args)
+        metrics_dir = plot_metrics(val_metrics, epoch + 1, run_dir)
         
         # Update best metrics if needed
-        if best_metrics is None or metrics['f1'] > best_metrics['f1']:
-            best_metrics = metrics
+        if best_metrics is None or val_metrics['f1'] > best_metrics['f1']:
+            best_metrics = val_metrics
             best_epoch = epoch + 1
         
-        # Early stopping check
-        early_stopping(avg_loss, model, optimizer, epoch + 1, args)
+        # Early stopping check using validation loss
+        early_stopping(avg_val_loss, model, optimizer, epoch + 1, args)
         if early_stopping.early_stop:
             print("Early stopping triggered")
             break
@@ -363,13 +428,13 @@ def train_model(args):
         # Clear memory after each epoch
         gc.collect()
     
-    print("Training completed!")
-    print(f"Best loss: {early_stopping.best_loss:.4f}")
-    print(f"Best F1 score: {best_metrics['f1']:.4f} at epoch {best_epoch}")
-    print(f"Best accuracy: {best_metrics['accuracy']:.4f}")
-    print(f"Best precision: {best_metrics['precision']:.4f}")
-    print(f"Best recall: {best_metrics['recall']:.4f}")
-    print(f"Best AUC: {best_metrics['auc']:.4f}")
+    print("\nTraining completed!")
+    print(f"Best validation loss: {early_stopping.best_loss:.4f}")
+    print(f"Best validation F1 score: {best_metrics['f1']:.4f} at epoch {best_epoch}")
+    print(f"Best validation accuracy: {best_metrics['accuracy']:.4f}")
+    print(f"Best validation precision: {best_metrics['precision']:.4f}")
+    print(f"Best validation recall: {best_metrics['recall']:.4f}")
+    print(f"Best validation AUC: {best_metrics['auc']:.4f}")
     
     # Save final metrics summary
     final_metrics = {
@@ -384,11 +449,20 @@ def train_model(args):
         },
         'all_metrics': [{
             'epoch': i+1,
-            'accuracy': float(m['accuracy']),
-            'precision': float(m['precision']),
-            'recall': float(m['recall']),
-            'f1': float(m['f1']),
-            'auc': float(m['auc'])
+            'train_metrics': {
+                'accuracy': float(m['accuracy']),
+                'precision': float(m['precision']),
+                'recall': float(m['recall']),
+                'f1': float(m['f1']),
+                'auc': float(m['auc'])
+            },
+            'val_metrics': {
+                'accuracy': float(m['accuracy']),
+                'precision': float(m['precision']),
+                'recall': float(m['recall']),
+                'f1': float(m['f1']),
+                'auc': float(m['auc'])
+            }
         } for i, m in enumerate(all_metrics)]
     }
     
@@ -408,6 +482,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=4, help="Number of workers for data loading")
     parser.add_argument("--include_augmented", action="store_true", default=True,
                        help="Include augmented data folders in training")
+    parser.add_argument("--val_split", type=float, default=0.2,
+                       help="Fraction of data to use for validation (default: 0.2)")
     
     # Model arguments
     parser.add_argument("--model_size", type=str, default="big", choices=["small", "big"], help="Model size")

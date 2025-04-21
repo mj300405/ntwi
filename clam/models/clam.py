@@ -7,6 +7,7 @@ class FeatureExtractor(nn.Module):
     def __init__(self):
         super(FeatureExtractor, self).__init__()
         resnet = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
+        # Remove the final fully connected layer
         self.features = nn.Sequential(*list(resnet.children())[:-1])
         self.output_dim = 2048  # ResNet50's output dimension
         
@@ -16,70 +17,94 @@ class FeatureExtractor(nn.Module):
         x = x.view(x.size(0), -1)  # [B*n, 2048]
         return x
 
-class Attention(nn.Module):
-    def __init__(self, L, D, K):
-        super(Attention, self).__init__()
+class MultiHeadAttention(nn.Module):
+    def __init__(self, L, D, K, num_heads=8):
+        super(MultiHeadAttention, self).__init__()
         self.L = L  # input dimension
         self.D = D  # hidden dimension
         self.K = K  # number of attention heads
+        self.num_heads = num_heads
+        self.head_dim = D // num_heads
         
-        self.attention = nn.Sequential(
-            nn.Linear(L, D),
-            nn.Tanh(),
-            nn.Linear(D, K)
-        )
+        self.query = nn.Linear(L, D)
+        self.key = nn.Linear(L, D)
+        self.value = nn.Linear(L, D)
+        self.proj = nn.Linear(D, D)
+        
+        self.layer_norm = nn.LayerNorm(L)
+        self.dropout = nn.Dropout(0.1)
         
     def forward(self, x):
         # x shape: [B, n, L]
         B, n, L = x.size()
         
-        # Compute attention scores
-        A = self.attention(x)  # [B, n, K]
-        A = F.softmax(A, dim=1)  # [B, n, K]
+        # Linear projections
+        Q = self.query(x).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
+        K = self.key(x).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
+        V = self.value(x).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
         
-        # Apply attention to features
-        M = torch.bmm(A.transpose(1, 2), x)  # [B, K, L]
+        # Scaled dot-product attention
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
+        A = F.softmax(scores, dim=-1)
+        A = self.dropout(A)
+        
+        # Apply attention to values
+        M = torch.matmul(A, V)  # [B, num_heads, n, head_dim]
+        M = M.transpose(1, 2).contiguous().view(B, n, self.D)
+        M = self.proj(M)
+        
+        # Residual connection and layer normalization
+        M = self.layer_norm(x + M)
         
         return M, A
 
-class GatedAttention(nn.Module):
-    def __init__(self, L, D, K):
-        super(GatedAttention, self).__init__()
+class GatedMultiHeadAttention(nn.Module):
+    def __init__(self, L, D, K, num_heads=8):
+        super(GatedMultiHeadAttention, self).__init__()
         self.L = L  # input dimension
         self.D = D  # hidden dimension
         self.K = K  # number of attention heads
+        self.num_heads = num_heads
+        self.head_dim = D // num_heads
         
-        self.attention_V = nn.Sequential(
-            nn.Linear(L, D),
-            nn.Tanh()
-        )
+        self.query = nn.Linear(L, D)
+        self.key = nn.Linear(L, D)
+        self.value = nn.Linear(L, D)
+        self.gate = nn.Linear(L, D)
+        self.proj = nn.Linear(D, D)
         
-        self.attention_U = nn.Sequential(
-            nn.Linear(L, D),
-            nn.Sigmoid()
-        )
-        
-        self.attention_weights = nn.Linear(D, K)
+        self.layer_norm = nn.LayerNorm(L)
+        self.dropout = nn.Dropout(0.1)
         
     def forward(self, x):
         # x shape: [B, n, L]
         B, n, L = x.size()
         
-        # Compute attention scores with gating
-        A_V = self.attention_V(x)  # [B, n, D]
-        A_U = self.attention_U(x)  # [B, n, D]
-        A = self.attention_weights(A_V * A_U)  # [B, n, K]
-        A = F.softmax(A, dim=1)  # [B, n, K]
+        # Linear projections
+        Q = self.query(x).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
+        K = self.key(x).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
+        V = self.value(x).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
+        G = torch.sigmoid(self.gate(x)).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
         
-        # Apply attention to features
-        M = torch.bmm(A.transpose(1, 2), x)  # [B, K, L]
+        # Scaled dot-product attention with gating
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
+        A = F.softmax(scores, dim=-1)
+        A = self.dropout(A)
+        
+        # Apply attention to values with gating
+        M = torch.matmul(A, V * G)  # [B, num_heads, n, head_dim]
+        M = M.transpose(1, 2).contiguous().view(B, n, self.D)
+        M = self.proj(M)
+        
+        # Residual connection and layer normalization
+        M = self.layer_norm(x + M)
         
         return M, A
 
 class CLAM(nn.Module):
     def __init__(self, gate=True, size_arg="small", dropout=False, k_sample=8, n_classes=2):
         """
-        CLAM model (Single Branch version) with feature extractor
+        Enhanced CLAM model with multi-head attention and residual connections
         Args:
             gate: Whether to use gated attention
             size_arg: Size of the model ('small' or 'big')
@@ -91,20 +116,39 @@ class CLAM(nn.Module):
         self.size_dict = {"small": [2048, 512, 256], "big": [2048, 512, 384]}
         size = self.size_dict[size_arg]
         
+        # Initialize backbone
         self.backbone = FeatureExtractor()
         
-        fc = [nn.Linear(size[0], size[1]), nn.ReLU()]
-        if dropout:
-            fc.append(nn.Dropout(0.25))
+        # Enable fine-tuning of the backbone
+        for param in self.backbone.parameters():
+            param.requires_grad = True
         
+        # Feature transformation layers with residual connection
+        self.feature_transform = nn.Sequential(
+            nn.Linear(size[0], size[1]),
+            nn.LayerNorm(size[1]),
+            nn.ReLU(),
+            nn.Dropout(0.25) if dropout else nn.Identity()
+        )
+        
+        # Attention mechanism
         if gate:
-            attention_net = GatedAttention(L=size[1], D=size[2], K=k_sample)
+            self.attention = GatedMultiHeadAttention(L=size[1], D=size[1], K=k_sample)
         else:
-            attention_net = Attention(L=size[1], D=size[2], K=k_sample)
-        fc.extend([attention_net])
-        self.attention_net = nn.Sequential(*fc)
+            self.attention = MultiHeadAttention(L=size[1], D=size[1], K=k_sample)
         
-        self.classifier = nn.Linear(size[1], n_classes)
+        # Enhanced classifier with residual connections
+        self.classifier = nn.Sequential(
+            nn.Linear(size[1], size[1]),
+            nn.LayerNorm(size[1]),
+            nn.ReLU(),
+            nn.Dropout(0.25),
+            nn.Linear(size[1], size[1] // 2),
+            nn.LayerNorm(size[1] // 2),
+            nn.ReLU(),
+            nn.Dropout(0.25),
+            nn.Linear(size[1] // 2, n_classes)
+        )
         
         self.k_sample = k_sample
         self.instance_loss_fn = nn.CrossEntropyLoss()
@@ -120,20 +164,32 @@ class CLAM(nn.Module):
         features = self.backbone(x)  # [B*n, 2048]
         features = features.view(B, n, -1)  # [B, n, 2048]
         
-        # Apply attention mechanism
-        features = self.attention_net[:-1](features)  # Apply FC layers before attention
-        M, A = self.attention_net[-1](features)  # M: [B, K, 512], A: [B, K, n]
+        # Transform features
+        features = self.feature_transform(features)  # [B, n, 512]
         
-        # Use the first attention head only
-        M = M[:, 0, :]  # [B, 512]
-        A = A[:, 0, :]  # [B, n]
+        # Apply attention mechanism
+        M, A = self.attention(features)  # M: [B, n, 512], A: [B, num_heads, n, n]
+        
+        # Global average pooling across instances
+        M = M.mean(dim=1)  # [B, 512]
         
         # Classification
         logits = self.classifier(M)  # [B, n_classes]
-        Y_prob = torch.nn.functional.softmax(logits, dim=1)  # Use torch.nn.functional.softmax
+        Y_prob = F.softmax(logits, dim=1)
         Y_hat = torch.argmax(Y_prob, dim=1)
         
         return logits, Y_prob, Y_hat, A
     
     def calculate_loss(self, logits, labels):
-        return self.instance_loss_fn(logits, labels) 
+        # Calculate instance-level loss
+        instance_loss = self.instance_loss_fn(logits, labels)
+        
+        # Add attention regularization to encourage more uniform attention
+        # This helps prevent the model from focusing too much on a few instances
+        attention_entropy = -torch.mean(torch.sum(A.mean(dim=1) * torch.log(A.mean(dim=1) + 1e-10), dim=1))
+        attention_loss = -attention_entropy  # Maximize entropy = more uniform attention
+        
+        # Combine losses with a weight for the attention regularization
+        total_loss = instance_loss + 0.1 * attention_loss
+        
+        return total_loss 
