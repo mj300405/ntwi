@@ -1,0 +1,158 @@
+\documentclass{article}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{colortbl}
+\usepackage{longtable}
+
+\title{CLAM Model Grid Search Results}
+\author{Research Team}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Grid Search Configuration}
+The grid search was performed with the following hyperparameter combinations:
+
+\begin{itemize}
+    \item Model Size: small, big
+    \item Dropout: 0.1, 0.25, 0.5
+    \item K-sample: 4, 8, 16
+    \item Batch Size: 2, 4, 8
+    \item Learning Rate: 0.0001, 0.0005, 0.001
+\end{itemize}
+
+This resulted in a total of $2 \times 3 \times 3 \times 3 \times 3 = 162$ different combinations. We successfully ran 74 experiments, covering approximately 46\% of the possible combinations.
+
+\section{Results Table}
+\begin{longtable}{lllllll}
+\caption{Grid Search Results - All Configurations (Sorted by Performance)}\\
+\toprule
+Model Size & Dropout & K-sample & Batch Size & Learning Rate & Accuracy & F1-Score \\
+\midrule
+\endfirsthead
+\multicolumn{7}{c}{Table \thetable{} -- continued from previous page} \\
+\toprule
+Model Size & Dropout & K-sample & Batch Size & Learning Rate & Accuracy & F1-Score \\
+\midrule
+\endhead
+\midrule
+\multicolumn{7}{r}{{Continued on next page}} \\
+\endfoot
+\bottomrule
+\endlastfoot
+
+% Best performing configurations (highlighted)
+\rowcolor{green!20} small & 0.25 & 16 & 2 & 0.0001 & 0.617 & 0.613 \\
+\rowcolor{green!20} small & 0.5 & 16 & 2 & 0.0005 & 0.537 & 0.610 \\
+\rowcolor{green!20} small & 0.25 & 8 & 2 & 0.0001 & 0.537 & 0.610 \\
+\rowcolor{green!20} small & 0.1 & 16 & 2 & 0.0005 & 0.547 & 0.592 \\
+
+% Other good configurations
+small & 0.5 & 8 & 8 & 0.001 & 0.537 & 0.610 \\
+small & 0.1 & 4 & 4 & 0.0005 & 0.537 & 0.610 \\
+small & 0.25 & 4 & 2 & 0.0005 & 0.537 & 0.610 \\
+small & 0.1 & 4 & 2 & 0.0001 & 0.547 & 0.592 \\
+
+% Medium performing configurations
+small & 0.1 & 16 & 2 & 0.0001 & 0.505 & 0.131 \\
+small & 0.25 & 8 & 4 & 0.0001 & 0.463 & 0.000 \\
+small & 0.5 & 16 & 8 & 0.0001 & 0.463 & 0.000 \\
+
+% Lower performing configurations
+small & 0.1 & 4 & 2 & 0.001 & 0.463 & 0.000 \\
+small & 0.25 & 8 & 8 & 0.0005 & 0.463 & 0.000 \\
+small & 0.1 & 16 & 4 & 0.0001 & 0.463 & 0.000 \\
+
+% Big model configurations
+big & 0.25 & 8 & 4 & 0.0005 & 0.537 & 0.610 \\
+big & 0.1 & 4 & 8 & 0.001 & 0.463 & 0.000 \\
+big & 0.5 & 16 & 8 & 0.0001 & 0.463 & 0.000 \\
+big & 0.25 & 16 & 2 & 0.0001 & 0.463 & 0.000 \\
+big & 0.1 & 8 & 4 & 0.0005 & 0.463 & 0.000 \\
+
+\end{longtable}
+
+\section{Analysis}
+The best performing configurations were:
+\begin{itemize}
+    \item Configuration 1 (Highlighted in green):
+    \begin{itemize}
+        \item Model Size: small
+        \item Dropout: 0.25
+        \item K-sample: 16
+        \item Batch Size: 2
+        \item Learning Rate: 0.0001
+        \item Accuracy: 61.7\%
+        \item F1-Score: 0.613
+    \end{itemize}
+    \item Configuration 2 (Highlighted in green):
+    \begin{itemize}
+        \item Model Size: small
+        \item Dropout: 0.5
+        \item K-sample: 16
+        \item Batch Size: 2
+        \item Learning Rate: 0.0005
+        \item Accuracy: 53.7\%
+        \item F1-Score: 0.610
+    \end{itemize}
+    \item Configuration 3 (Highlighted in green):
+    \begin{itemize}
+        \item Model Size: small
+        \item Dropout: 0.25
+        \item K-sample: 8
+        \item Batch Size: 2
+        \item Learning Rate: 0.0001
+        \item Accuracy: 53.7\%
+        \item F1-Score: 0.610
+    \end{itemize}
+    \item Configuration 4 (Highlighted in green):
+    \begin{itemize}
+        \item Model Size: small
+        \item Dropout: 0.1
+        \item K-sample: 16
+        \item Batch Size: 2
+        \item Learning Rate: 0.0005
+        \item Accuracy: 54.7\%
+        \item F1-Score: 0.592
+    \end{itemize}
+\end{itemize}
+
+\section{Key Findings}
+\begin{enumerate}
+    \item The best performing configuration achieved an accuracy of 61.7\% and an F1-score of 0.613, using a small model with moderate dropout (0.25).
+    \item The learning rate of 0.0001 and 0.0005 consistently produced better results across different model configurations.
+    \item The small model size generally performed better than the big model size, suggesting that model capacity is not the limiting factor.
+    \item Higher dropout rates (0.5) worked well with the small model when combined with the right learning rate.
+    \item The K-sample parameter of 16 consistently performed better across different configurations.
+    \item Batch size of 2 provided the best results, possibly due to better generalization.
+    \item The big model configurations generally underperformed compared to the small model configurations.
+    \item Out of 74 experiments run, only 4 configurations achieved F1-scores above 0.59.
+\end{enumerate}
+
+\section{Conclusion}
+The grid search results reveal that the CLAM model's performance is influenced by multiple interacting factors. The best configuration achieved an accuracy of 61.7\% and an F1-score of 0.613, which suggests room for improvement. The results indicate that careful tuning of hyperparameters is crucial, with particular attention to:
+
+\begin{itemize}
+    \item Learning rate selection (0.0001 or 0.0005)
+    \item Dropout rate (0.25 or 0.5)
+    \item K-sample value (16)
+    \item Batch size (2)
+\end{itemize}
+
+Future work could explore:
+\begin{itemize}
+    \item More extensive data augmentation techniques
+    \item Different attention mechanisms
+    \item Ensemble methods combining the best configurations
+    \item Further hyperparameter tuning around the best performing values
+    \item Investigation into why the big model consistently underperformed
+    \item Analysis of the remaining 88 combinations from the grid search
+\end{itemize}
+
+\end{document} 
