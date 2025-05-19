@@ -239,9 +239,10 @@ def main(args):
     )
     test_loader = DataLoader(
         test_dataset,
-        batch_size=1,
+        batch_size=args.batch_size,
         shuffle=False,
-        num_workers=args.num_workers,
+        pin_memory=False,
+        prefetch_factor=1
     )
     
     # Evaluate model
@@ -265,14 +266,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Evaluate CLAM model for EGFR mutation prediction")
     
     # Data arguments
-    parser.add_argument("--data_dir", type=str, 
+    parser.add_argument("--data_dir", type=str,
                        default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "test"),
-                       help="Path to the test data directory")
+                       help="Path to the test data directory (default: project_root/test)")
+    parser.add_argument("--max_tiles", type=int, default=100, help="Maximum number of tiles per bag")
+    parser.add_argument("--include_augmented", action="store_true", default=True,
+                       help="Include augmented data folders in evaluation")
     parser.add_argument("--checkpoint_dir", type=str,
                        default=os.path.join(os.path.dirname(os.path.dirname(__file__)), "clam/checkpoints"),
                        help="Path to the checkpoints directory")
-    parser.add_argument("--num_workers", type=int, default=4,
-                       help="Number of workers for data loading")
     
     args = parser.parse_args()
     main(args) 

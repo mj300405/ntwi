@@ -11,32 +11,46 @@ class FeatureExtractor(nn.Module):
         self.features = nn.Sequential(*list(resnet.children())[:-1])
         self.output_dim = 2048  # ResNet50's output dimension
         
+        # Add feature compression layer with LayerNorm
+        self.compression = nn.Sequential(
+            nn.Linear(2048, 512),
+            nn.LayerNorm(512),
+            nn.ReLU(),
+            nn.Dropout(0.25)
+        )
+        
     def forward(self, x):
         # x shape: [B*n, C, H, W]
         x = self.features(x)  # [B*n, 2048, 1, 1]
         x = x.view(x.size(0), -1)  # [B*n, 2048]
+        x = self.compression(x)  # [B*n, 512]
         return x
 
-class MultiHeadAttention(nn.Module):
+class SimplifiedAttention(nn.Module):
     def __init__(self, L, D, K, num_heads=8):
-        super(MultiHeadAttention, self).__init__()
+        super(SimplifiedAttention, self).__init__()
         self.L = L  # input dimension
         self.D = D  # hidden dimension
         self.K = K  # number of attention heads
         self.num_heads = num_heads
         self.head_dim = D // num_heads
         
+        # Simplified linear projections
         self.query = nn.Linear(L, D)
         self.key = nn.Linear(L, D)
         self.value = nn.Linear(L, D)
-        self.proj = nn.Linear(D, D)
         
-        self.layer_norm = nn.LayerNorm(L)
+        # Layer normalization and dropout
+        self.layer_norm1 = nn.LayerNorm(L)
+        self.layer_norm2 = nn.LayerNorm(D)
         self.dropout = nn.Dropout(0.1)
         
     def forward(self, x):
         # x shape: [B, n, L]
         B, n, L = x.size()
+        
+        # First layer normalization
+        x = self.layer_norm1(x)
         
         # Linear projections
         Q = self.query(x).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
@@ -51,104 +65,67 @@ class MultiHeadAttention(nn.Module):
         # Apply attention to values
         M = torch.matmul(A, V)  # [B, num_heads, n, head_dim]
         M = M.transpose(1, 2).contiguous().view(B, n, self.D)
-        M = self.proj(M)
         
-        # Residual connection and layer normalization
-        M = self.layer_norm(x + M)
+        # Second layer normalization and residual connection
+        M = self.layer_norm2(M)
         
         return M, A
 
-class GatedMultiHeadAttention(nn.Module):
-    def __init__(self, L, D, K, num_heads=8):
-        super(GatedMultiHeadAttention, self).__init__()
-        self.L = L  # input dimension
-        self.D = D  # hidden dimension
-        self.K = K  # number of attention heads
-        self.num_heads = num_heads
-        self.head_dim = D // num_heads
-        
-        self.query = nn.Linear(L, D)
-        self.key = nn.Linear(L, D)
-        self.value = nn.Linear(L, D)
-        self.gate = nn.Linear(L, D)
-        self.proj = nn.Linear(D, D)
-        
-        self.layer_norm = nn.LayerNorm(L)
-        self.dropout = nn.Dropout(0.1)
+class ResidualClassifier(nn.Module):
+    def __init__(self, input_dim, hidden_dim, num_classes):
+        super(ResidualClassifier, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.ln1 = nn.LayerNorm(hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.ln2 = nn.LayerNorm(hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, num_classes)
+        self.dropout = nn.Dropout(0.25)
         
     def forward(self, x):
-        # x shape: [B, n, L]
-        B, n, L = x.size()
+        # First residual block
+        identity = x
+        x = self.fc1(x)
+        x = self.ln1(x)
+        x = F.relu(x)
+        x = self.dropout(x)
         
-        # Linear projections
-        Q = self.query(x).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
-        K = self.key(x).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
-        V = self.value(x).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
-        G = torch.sigmoid(self.gate(x)).view(B, n, self.num_heads, self.head_dim).transpose(1, 2)
+        # Second residual block
+        x = self.fc2(x)
+        x = self.ln2(x)
+        x = F.relu(x)
+        x = self.dropout(x)
         
-        # Scaled dot-product attention with gating
-        scores = torch.matmul(Q, K.transpose(-2, -1)) / torch.sqrt(torch.tensor(self.head_dim, dtype=torch.float32))
-        A = F.softmax(scores, dim=-1)
-        A = self.dropout(A)
-        
-        # Apply attention to values with gating
-        M = torch.matmul(A, V * G)  # [B, num_heads, n, head_dim]
-        M = M.transpose(1, 2).contiguous().view(B, n, self.D)
-        M = self.proj(M)
-        
-        # Residual connection and layer normalization
-        M = self.layer_norm(x + M)
-        
-        return M, A
+        # Final classification layer
+        x = self.fc3(x)
+        return x
 
 class CLAM(nn.Module):
     def __init__(self, gate=True, size_arg="small", dropout=False, k_sample=8, n_classes=2):
         """
-        Enhanced CLAM model with multi-head attention and residual connections
+        Enhanced CLAM model with improved feature extraction, simplified attention, and residual classifier
         Args:
-            gate: Whether to use gated attention
+            gate: Whether to use gated attention (ignored in new implementation)
             size_arg: Size of the model ('small' or 'big')
             dropout: Dropout rate
             k_sample: Number of attention heads
             n_classes: Number of classes (2 for EGFR pos/neg)
         """
         super(CLAM, self).__init__()
-        self.size_dict = {"small": [2048, 512, 256], "big": [2048, 512, 384]}
+        self.size_dict = {"small": [512, 256, 128], "big": [512, 384, 256]}
         size = self.size_dict[size_arg]
         
-        # Initialize backbone
+        # Initialize backbone with feature compression
         self.backbone = FeatureExtractor()
         
         # Enable fine-tuning of the backbone
         for param in self.backbone.parameters():
             param.requires_grad = True
         
-        # Feature transformation layers with residual connection
-        self.feature_transform = nn.Sequential(
-            nn.Linear(size[0], size[1]),
-            nn.LayerNorm(size[1]),
-            nn.ReLU(),
-            nn.Dropout(0.25) if dropout else nn.Identity()
-        )
+        # Simplified attention mechanism
+        self.attention = SimplifiedAttention(L=size[0], D=size[1], K=k_sample)
         
-        # Attention mechanism
-        if gate:
-            self.attention = GatedMultiHeadAttention(L=size[1], D=size[1], K=k_sample)
-        else:
-            self.attention = MultiHeadAttention(L=size[1], D=size[1], K=k_sample)
-        
-        # Enhanced classifier with residual connections
-        self.classifier = nn.Sequential(
-            nn.Linear(size[1], size[1]),
-            nn.LayerNorm(size[1]),
-            nn.ReLU(),
-            nn.Dropout(0.25),
-            nn.Linear(size[1], size[1] // 2),
-            nn.LayerNorm(size[1] // 2),
-            nn.ReLU(),
-            nn.Dropout(0.25),
-            nn.Linear(size[1] // 2, n_classes)
-        )
+        # Residual classifier
+        self.classifier = ResidualClassifier(size[1], size[2], n_classes)
         
         self.k_sample = k_sample
         self.instance_loss_fn = nn.CrossEntropyLoss()
@@ -160,39 +137,40 @@ class CLAM(nn.Module):
         B, n, C, H, W = x.size()
         x = x.view(B * n, C, H, W)  # [B*n, C, H, W]
         
-        # Extract features
-        features = self.backbone(x)  # [B*n, 2048]
-        features = features.view(B, n, -1)  # [B, n, 2048]
+        # Extract and compress features
+        features = self.backbone(x)  # [B*n, 512]
+        features = features.view(B, n, -1)  # [B, n, 512]
         
-        # Transform features
-        features = self.feature_transform(features)  # [B, n, 512]
+        # Apply attention
+        M, A = self.attention(features)  # [B, n, 256/384], [B, num_heads, n, n]
         
-        # Apply attention mechanism
-        M, A = self.attention(features)  # M: [B, n, 512], A: [B, num_heads, n, n]
-        
-        # Global average pooling across instances
-        M = M.mean(dim=1)  # [B, 512]
+        # Global average pooling
+        M = M.mean(dim=1)  # [B, 256/384]
         
         # Classification
         logits = self.classifier(M)  # [B, n_classes]
+        
+        # Calculate probabilities and predictions
         Y_prob = F.softmax(logits, dim=1)
         Y_hat = torch.argmax(Y_prob, dim=1)
         
         return logits, Y_prob, Y_hat, A
     
-    def calculate_loss(self, logits, labels, attention_weights=None):
-        # Calculate instance-level loss
+    def calculate_loss(self, logits, labels, A=None):
+        """
+        Calculate the loss for the model
+        Args:
+            logits: Model output logits [B, n_classes]
+            labels: Ground truth labels [B]
+            A: Attention weights (optional)
+        """
+        # Instance-level loss
         instance_loss = self.instance_loss_fn(logits, labels)
         
-        if attention_weights is not None:
-            # Add attention regularization to encourage more uniform attention
-            # This helps prevent the model from focusing too much on a few instances
-            attention_entropy = -torch.mean(torch.sum(attention_weights.mean(dim=1) * torch.log(attention_weights.mean(dim=1) + 1e-10), dim=1))
-            attention_loss = -attention_entropy  # Maximize entropy = more uniform attention
-            
-            # Combine losses with a weight for the attention regularization
-            total_loss = instance_loss + 0.1 * attention_loss
-        else:
-            total_loss = instance_loss
+        # Add attention regularization if attention weights are provided
+        if A is not None:
+            # Encourage attention weights to be sparse
+            attention_reg = torch.mean(torch.abs(A))
+            return instance_loss + 0.01 * attention_reg
         
-        return total_loss 
+        return instance_loss 

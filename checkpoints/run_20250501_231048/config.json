@@ -1,0 +1,22 @@
+{
+    "timestamp": "20250501_231048",
+    "args": {
+        "data_dir": "/Users/michal/Desktop/ntwi/train",
+        "split": "train",
+        "max_tiles": 100,
+        "num_workers": 7,
+        "include_augmented": true,
+        "val_split": 0.2,
+        "model_size": "big",
+        "dropout": 0.2,
+        "k_sample": 8,
+        "n_classes": 2,
+        "num_epochs": 30,
+        "batch_size": 8,
+        "learning_rate": 0.0003,
+        "patience": 7,
+        "min_delta": 0.001,
+        "use_mps": 1
+    }
+}
+}}

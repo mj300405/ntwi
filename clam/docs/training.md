@@ -42,19 +42,26 @@ The training script accepts the following arguments:
 - `--include_augmented`: Include augmented data folders in training (default: True)
 
 ### Model Arguments
-- `--model_size`: Model size (default: big)
+- `--model_size`: Model size ('small' or 'big') (default: 'big')
 - `--dropout`: Dropout rate (default: 0.25)
 - `--k_sample`: Number of attention heads (default: 8)
 - `--n_classes`: Number of classes (default: 2)
 
 ### Training Arguments
 - `--num_epochs`: Number of training epochs (default: 20)
-- `--batch_size`: Batch size (default: 1)
+- `--batch_size`: Batch size (default: 4)
 - `--learning_rate`: Learning rate (default: 0.0005)
+- `--patience`: Patience for early stopping (default: 7)
 
 ### Early Stopping Arguments
-- `--patience`: Number of epochs to wait before early stopping (default: 7)
 - `--min_delta`: Minimum change in loss to qualify as an improvement (default: 0.001)
+
+### Performance Optimization
+- Use MPS (Metal Performance Shaders) on Apple Silicon Macs
+- Enable gradient checkpointing for memory efficiency
+- Use conservative batch sizes for MPS
+- Disable pin_memory for MPS compatibility
+- Use reduced prefetch factor for data loading
 
 ## Output and Metrics
 
@@ -96,8 +103,7 @@ To disable the use of augmented data, use the `--no-include_augmented` flag when
 
 If you encounter memory issues:
 - Reduce `--max_tiles` to process fewer tiles per bag
-- Reduce `--batch_size` (already set to 1 by default)
-- Reduce `--num_workers` if using CPU
+- Reduce `--batch_size` (already set to 4 by default)
 - The script includes automatic garbage collection for MPS memory management
 
 ### Performance Optimization

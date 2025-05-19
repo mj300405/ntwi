@@ -13,9 +13,17 @@ import gc
 import matplotlib.pyplot as plt
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix, roc_curve, auc
 import seaborn as sns
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from collections import defaultdict
+import torch.nn.functional as F
+import warnings
+from sklearn.exceptions import UndefinedMetricWarning
 
-from models.clam import CLAM
-from datasets.egfr_dataset import EGFRBagDataset
+# Suppress sklearn warnings
+warnings.filterwarnings('ignore', category=UndefinedMetricWarning)
+
+from .models.clam import CLAM
+from .datasets.egfr_dataset import EGFRBagDataset
 
 def validate_data_paths(data_dir, split='train'):
     """
@@ -160,11 +168,14 @@ class EarlyStopping:
 
 def calculate_metrics(y_true, y_pred, y_prob):
     """Calculate classification metrics"""
+    # Define labels to ensure confusion matrix has correct shape
+    labels = [0, 1]
+    
     accuracy = accuracy_score(y_true, y_pred)
-    precision = precision_score(y_true, y_pred, average='binary')
-    recall = recall_score(y_true, y_pred, average='binary')
-    f1 = f1_score(y_true, y_pred, average='binary')
-    conf_matrix = confusion_matrix(y_true, y_pred)
+    precision = precision_score(y_true, y_pred, average='binary', zero_division=0)
+    recall = recall_score(y_true, y_pred, average='binary', zero_division=0)
+    f1 = f1_score(y_true, y_pred, average='binary', zero_division=0)
+    conf_matrix = confusion_matrix(y_true, y_pred, labels=labels)
     
     # Calculate ROC curve and AUC
     fpr, tpr, _ = roc_curve(y_true, y_prob)
@@ -223,251 +234,208 @@ def plot_metrics(metrics, epoch, run_dir):
     return metrics_dir
 
 def train_model(args):
-    # Set device
+    """Train the CLAM model with given parameters"""
+    # Set up device with automatic MPS detection
     if torch.backends.mps.is_available():
-        device = torch.device("mps")
-        print("Using Apple Metal (MPS) for acceleration")
+        try:
+            # Use a more conservative memory fraction
+            torch.mps.set_per_process_memory_fraction(1.0)
+            device = torch.device("mps")
+            print("Using MPS device with 100% memory limit")
+        except RuntimeError as e:
+            print(f"Warning: Could not set MPS memory fraction: {e}")
+            print("Falling back to CPU")
+            device = torch.device("cpu")
     else:
-        device = torch.device("cpu")
-        print("MPS not available, using CPU")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using {device} device")
     
-    # Validate data paths
-    if not validate_data_paths(args.data_dir, split=args.split):
-        print("\nExpected directory structure:")
-        if args.split == 'train':
-            print("data_dir/")
-            print("├── EGFR_positive/")
-            print("├── EGFR_negative/")
-            print("├── EGFR_positive_aug/ (optional)")
-            print("├── EGFR_negative_aug/ (optional)")
-            print("├── EGFR_positive_cnn/ (optional)")
-            print("└── EGFR_negative_cnn/ (optional)")
-        else:
-            print("data_dir/")
-            print("├── C-S-EGFR_positive/")
-            print("└── C-S-EGFR_negative/")
-        return
+    # Create output directory
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = Path("output") / f"train_{timestamp}"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save training parameters
+    with open(output_dir / "params.json", 'w') as f:
+        json.dump(vars(args), f, indent=4)
     
     # Initialize model
     model = CLAM(
-        gate=True,
         size_arg=args.model_size,
         dropout=args.dropout,
         k_sample=args.k_sample,
-        n_classes=args.n_classes
-    )
-    model = model.to(device)
+        n_classes=2
+    ).to(device)
     
-    # Initialize datasets and dataloaders
+    # Enable gradient checkpointing if using MPS
+    if device.type == 'mps':
+        model.use_checkpointing = True
+    
+    # Initialize optimizer with gradient clipping
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=3
+    )
+    
+    # Initialize dataset with memory-efficient settings
     train_dataset = EGFRBagDataset(
         data_dir=args.data_dir,
         max_tiles=args.max_tiles,
-        include_augmented=args.include_augmented,
         val_split=args.val_split,
+        include_augmented=args.include_augmented,
         is_validation=False
     )
     
     val_dataset = EGFRBagDataset(
         data_dir=args.data_dir,
         max_tiles=args.max_tiles,
-        include_augmented=args.include_augmented,
         val_split=args.val_split,
+        include_augmented=args.include_augmented,
         is_validation=True
     )
     
+    # Create data loaders with reduced prefetch factor
     train_loader = DataLoader(
-        train_dataset, 
-        batch_size=args.batch_size, 
+        train_dataset,
+        batch_size=args.batch_size,
         shuffle=True,
-        num_workers=args.num_workers,
+        pin_memory=False,
+        prefetch_factor=None  # Set to None since we're not using multiprocessing
     )
     
     val_loader = DataLoader(
         val_dataset,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=args.num_workers,
+        pin_memory=False,
+        prefetch_factor=None  # Set to None since we're not using multiprocessing
     )
     
-    # Initialize optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+    # Training loop with memory cleanup
+    best_val_loss = float('inf')
+    patience_counter = 0
+    metrics_history = []
     
-    # Initialize early stopping
-    early_stopping = EarlyStopping(
-        patience=args.patience,
-        min_delta=args.min_delta,
-        verbose=True
-    )
-    
-    # Initialize metrics tracking
-    all_metrics = []
-    best_metrics = None
-    best_epoch = 0
-    
-    # Training loop
     for epoch in range(args.num_epochs):
         # Training phase
         model.train()
         train_loss = 0.0
-        train_labels = []
-        train_preds = []
-        train_probs = []
+        train_metrics = defaultdict(list)
         
-        # Progress bar for training
-        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.num_epochs} [Train]")
+        # Create progress bar for training
+        train_pbar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{args.num_epochs} [Train]', leave=False)
         
-        for batch_idx, (data, labels) in enumerate(train_pbar):
-            # Move data to device
-            data = data.to(device)
-            labels = labels.to(device)
+        for batch_idx, (data, target) in enumerate(train_pbar):
+            data, target = data.to(device), target.to(device)
             
-            # Forward pass
             optimizer.zero_grad()
             logits, Y_prob, Y_hat, A = model(data)
-            
-            # Calculate loss
-            loss = model.calculate_loss(logits, labels, A)
-            
-            # Backward pass
+            loss = F.cross_entropy(logits, target)
             loss.backward()
+            
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+            
             optimizer.step()
             
-            # Update progress bar
+            # Use detach() to avoid the warning
             train_loss += loss.detach().item()
-            train_pbar.set_postfix({"loss": loss.detach().item()})
+            metrics = calculate_metrics(
+                target.cpu().detach().numpy(),
+                Y_hat.cpu().detach().numpy(),
+                Y_prob[:, 1].cpu().detach().numpy()
+            )
+            for k, v in metrics.items():
+                train_metrics[k].append(v)
             
-            # Collect predictions for metrics
-            train_labels.extend(labels.cpu().numpy())
-            train_preds.extend(Y_hat.detach().cpu().numpy())
-            train_probs.extend(Y_prob[:, 1].detach().cpu().numpy())
+            # Update progress bar
+            train_pbar.set_postfix({
+                'loss': f'{loss.detach().item():.4f}',
+                'acc': f'{metrics["accuracy"]:.4f}'
+            })
             
-            # Clear memory
-            del data, labels, logits, Y_prob, Y_hat, A, loss
+            # Clear cache more frequently
+            if batch_idx % 5 == 0 and torch.backends.mps.is_available():
+                torch.mps.empty_cache()
+            
+            # Free up memory
+            del loss
             if device.type == 'mps':
-                gc.collect()
-        
-        # Calculate average training loss
-        avg_train_loss = train_loss / len(train_loader)
+                torch.mps.empty_cache()
         
         # Validation phase
         model.eval()
         val_loss = 0.0
-        val_labels = []
-        val_preds = []
-        val_probs = []
+        val_metrics = defaultdict(list)
+        
+        # Create progress bar for validation
+        val_pbar = tqdm(val_loader, desc=f'Epoch {epoch+1}/{args.num_epochs} [Val]', leave=False)
         
         with torch.no_grad():
-            # Progress bar for validation
-            val_pbar = tqdm(val_loader, desc=f"Epoch {epoch+1}/{args.num_epochs} [Val]")
-            
-            for batch_idx, (data, labels) in enumerate(val_pbar):
-                # Move data to device
-                data = data.to(device)
-                labels = labels.to(device)
-                
-                # Forward pass
+            for data, target in val_pbar:
+                data, target = data.to(device), target.to(device)
                 logits, Y_prob, Y_hat, A = model(data)
-                
-                # Calculate loss
-                loss = model.calculate_loss(logits, labels, A)
+                val_loss += F.cross_entropy(logits, target).item()
+                metrics = calculate_metrics(
+                    target.cpu().numpy(),
+                    Y_hat.cpu().numpy(),
+                    Y_prob[:, 1].cpu().numpy()
+                )
+                for k, v in metrics.items():
+                    val_metrics[k].append(v)
                 
                 # Update progress bar
-                val_loss += loss.detach().item()
-                val_pbar.set_postfix({"loss": loss.detach().item()})
+                val_pbar.set_postfix({
+                    'loss': f'{F.cross_entropy(logits, target).item():.4f}',
+                    'acc': f'{metrics["accuracy"]:.4f}'
+                })
                 
-                # Collect predictions for metrics
-                val_labels.extend(labels.cpu().numpy())
-                val_preds.extend(Y_hat.detach().cpu().numpy())
-                val_probs.extend(Y_prob[:, 1].detach().cpu().numpy())
-                
-                # Clear memory
-                del data, labels, logits, Y_prob, Y_hat, A, loss
+                # Free up memory
                 if device.type == 'mps':
-                    gc.collect()
+                    torch.mps.empty_cache()
         
-        # Calculate average validation loss
-        avg_val_loss = val_loss / len(val_loader)
+        # Calculate epoch metrics
+        train_loss /= len(train_loader)
+        val_loss /= len(val_loader)
         
-        # Calculate metrics for both training and validation
-        train_metrics = calculate_metrics(train_labels, train_preds, train_probs)
-        val_metrics = calculate_metrics(val_labels, val_preds, val_probs)
+        epoch_metrics = {
+            'epoch': epoch + 1,
+            'train_loss': train_loss,
+            'val_loss': val_loss,
+            'train_metrics': {k: np.mean(v) for k, v in train_metrics.items()},
+            'val_metrics': {k: np.mean(v) for k, v in val_metrics.items()}
+        }
+        metrics_history.append(epoch_metrics)
         
-        # Print metrics
-        print(f"\nEpoch {epoch+1}/{args.num_epochs}")
-        print("Training:")
-        print(f"Loss: {avg_train_loss:.4f}")
-        print(f"Accuracy: {train_metrics['accuracy']:.4f}")
-        print(f"Precision: {train_metrics['precision']:.4f}")
-        print(f"Recall: {train_metrics['recall']:.4f}")
-        print(f"F1 Score: {train_metrics['f1']:.4f}")
-        print(f"AUC: {train_metrics['auc']:.4f}")
+        # Save metrics
+        with open(output_dir / "metrics.json", 'w') as f:
+            json.dump(metrics_history, f, indent=4)
         
-        print("\nValidation:")
-        print(f"Loss: {avg_val_loss:.4f}")
-        print(f"Accuracy: {val_metrics['accuracy']:.4f}")
-        print(f"Precision: {val_metrics['precision']:.4f}")
-        print(f"Recall: {val_metrics['recall']:.4f}")
-        print(f"F1 Score: {val_metrics['f1']:.4f}")
-        print(f"AUC: {val_metrics['auc']:.4f}")
+        # Learning rate scheduling
+        scheduler.step(val_loss)
         
-        # Save metrics plots
-        run_dir = early_stopping.save_checkpoint(avg_val_loss, model, optimizer, epoch + 1, args)
-        metrics_dir = plot_metrics(val_metrics, epoch + 1, run_dir)
+        # Early stopping
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            patience_counter = 0
+            torch.save(model.state_dict(), output_dir / "best_model.pth")
+        else:
+            patience_counter += 1
+            if patience_counter >= args.patience:
+                print(f"\nEarly stopping triggered after {epoch + 1} epochs")
+                break
         
-        # Update best metrics if needed
-        if best_metrics is None or val_metrics['f1'] > best_metrics['f1']:
-            best_metrics = val_metrics
-            best_epoch = epoch + 1
+        # Print epoch summary
+        print(f"\nEpoch {epoch + 1}/{args.num_epochs} Summary:")
+        print(f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+        print("Train Metrics:", {k: f"{v:.4f}" for k, v in epoch_metrics['train_metrics'].items()})
+        print("Val Metrics:", {k: f"{v:.4f}" for k, v in epoch_metrics['val_metrics'].items()})
         
-        # Early stopping check using validation loss
-        early_stopping(avg_val_loss, model, optimizer, epoch + 1, args)
-        if early_stopping.early_stop:
-            print("Early stopping triggered")
-            break
-        
-        # Clear memory after each epoch
-        gc.collect()
+        # Clear cache after each epoch
+        if torch.backends.mps.is_available():
+            torch.mps.empty_cache()
     
-    print("\nTraining completed!")
-    print(f"Best validation loss: {early_stopping.best_loss:.4f}")
-    print(f"Best validation F1 score: {best_metrics['f1']:.4f} at epoch {best_epoch}")
-    print(f"Best validation accuracy: {best_metrics['accuracy']:.4f}")
-    print(f"Best validation precision: {best_metrics['precision']:.4f}")
-    print(f"Best validation recall: {best_metrics['recall']:.4f}")
-    print(f"Best validation AUC: {best_metrics['auc']:.4f}")
-    
-    # Save final metrics summary
-    final_metrics = {
-        'best_epoch': best_epoch,
-        'best_metrics': {
-            'accuracy': float(best_metrics['accuracy']),
-            'precision': float(best_metrics['precision']),
-            'recall': float(best_metrics['recall']),
-            'f1': float(best_metrics['f1']),
-            'auc': float(best_metrics['auc']),
-            'confusion_matrix': best_metrics['confusion_matrix'].tolist()
-        },
-        'all_metrics': [{
-            'epoch': i+1,
-            'train_metrics': {
-                'accuracy': float(m['accuracy']),
-                'precision': float(m['precision']),
-                'recall': float(m['recall']),
-                'f1': float(m['f1']),
-                'auc': float(m['auc'])
-            },
-            'val_metrics': {
-                'accuracy': float(m['accuracy']),
-                'precision': float(m['precision']),
-                'recall': float(m['recall']),
-                'f1': float(m['f1']),
-                'auc': float(m['auc'])
-            }
-        } for i, m in enumerate(all_metrics)]
-    }
-    
-    with open(os.path.join(run_dir, 'metrics', 'final_metrics.json'), 'w') as f:
-        json.dump(final_metrics, f, indent=4)
+    return output_dir
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train CLAM model for EGFR mutation prediction")
@@ -479,7 +447,6 @@ if __name__ == "__main__":
     parser.add_argument("--split", type=str, default="train", choices=["train", "test"],
                        help="Data split to use (default: train)")
     parser.add_argument("--max_tiles", type=int, default=100, help="Maximum number of tiles per bag")
-    parser.add_argument("--num_workers", type=int, default=4, help="Number of workers for data loading")
     parser.add_argument("--include_augmented", action="store_true", default=True,
                        help="Include augmented data folders in training")
     parser.add_argument("--val_split", type=float, default=0.2,

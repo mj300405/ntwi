@@ -132,17 +132,15 @@ class EGFRBagDataset(Dataset):
         tiles = []
         for tile_path in tile_paths:
             try:
-                # Load image and convert to tensor directly
+                # Load and preprocess the image
                 img = Image.open(tile_path).convert('RGB')
-                img_array = np.array(img)
-                
-                # Convert to tensor with minimal memory usage
-                img_tensor = torch.from_numpy(img_array).permute(2, 0, 1).float() / 255.0
-                
-                # Free memory
-                del img, img_array
-                
-                tiles.append(img_tensor)
+                # Resize image to 224x224 if it's not already that size
+                if img.size != (224, 224):
+                    img = img.resize((224, 224), Image.Resampling.LANCZOS)
+                img = np.array(img)
+                img = img.transpose(2, 0, 1)  # HWC to CHW
+                img = img.astype(np.float32) / 255.0  # Normalize to [0,1]
+                tiles.append(torch.from_numpy(img))
             except Exception as e:
                 print(f"Error loading {tile_path}: {e}")
                 # If we can't load an image, create a blank one
@@ -150,6 +148,16 @@ class EGFRBagDataset(Dataset):
                 tiles.append(blank_img)
         
         # Stack tiles into a single tensor
-        tiles_tensor = torch.stack(tiles)
+        if tiles:
+            tiles_tensor = torch.stack(tiles)
+            
+            # Pad to max_tiles if necessary
+            if tiles_tensor.size(0) < self.max_tiles:
+                padding_size = self.max_tiles - tiles_tensor.size(0)
+                padding = torch.zeros((padding_size, 3, 224, 224))
+                tiles_tensor = torch.cat([tiles_tensor, padding], dim=0)
+        else:
+            # If no tiles were loaded, create a tensor of zeros
+            tiles_tensor = torch.zeros((self.max_tiles, 3, 224, 224))
         
         return tiles_tensor, torch.tensor(label, dtype=torch.long) 
