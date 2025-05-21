@@ -135,24 +135,4 @@ The best performing configurations were:
     \item Out of 74 experiments run, only 4 configurations achieved F1-scores above 0.59.
 \end{enumerate}
 
-\section{Conclusion}
-The grid search results reveal that the CLAM model's performance is influenced by multiple interacting factors. The best configuration achieved an accuracy of 61.7\% and an F1-score of 0.613, which suggests room for improvement. The results indicate that careful tuning of hyperparameters is crucial, with particular attention to:
-
-\begin{itemize}
-    \item Learning rate selection (0.0001 or 0.0005)
-    \item Dropout rate (0.25 or 0.5)
-    \item K-sample value (16)
-    \item Batch size (2)
-\end{itemize}
-
-Future work could explore:
-\begin{itemize}
-    \item More extensive data augmentation techniques
-    \item Different attention mechanisms
-    \item Ensemble methods combining the best configurations
-    \item Further hyperparameter tuning around the best performing values
-    \item Investigation into why the big model consistently underperformed
-    \item Analysis of the remaining 88 combinations from the grid search
-\end{itemize}
-
 \end{document} 
