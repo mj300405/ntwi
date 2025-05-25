@@ -32,3 +32,9 @@ build/
 *.log
 
 /output
+
+  checkpoints/
+  output/
+  *.pt
+  *.pth
+  *.ckpt
