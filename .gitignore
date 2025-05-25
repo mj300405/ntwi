@@ -5,6 +5,8 @@
 
 # Data and checkpoints
 clam/checkpoints/*
+snuffy/checkpoints/*
+snuffy/output/*
 !clam/checkpoints/.gitkeep
 dataset_csv/*
 !dataset_csv/.gitkeep
@@ -32,9 +34,6 @@ build/
 *.log
 
 /output
-
-  checkpoints/
-  output/
-  *.pt
-  *.pth
-  *.ckpt
+*.pt
+*.pth
+*.ckpt

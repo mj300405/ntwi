@@ -187,10 +187,13 @@ def calculate_metrics(y_true, y_pred, y_prob):
         'auc': auc_score
     }
 
-def plot_metrics(metrics, epoch, run_dir):
+def plot_metrics(metrics, epoch, run_dir, output_dir=None):
     """Plot and save metrics"""
-    # Create metrics directory
-    metrics_dir = os.path.join(run_dir, 'metrics')
+    # Use output_dir if provided, else use run_dir
+    if output_dir is not None:
+        metrics_dir = os.path.join(output_dir, os.path.basename(run_dir), 'metrics')
+    else:
+        metrics_dir = os.path.join(run_dir, 'metrics')
     os.makedirs(metrics_dir, exist_ok=True)
     
     # Plot confusion matrix
@@ -435,7 +438,7 @@ def train_model(args):
         
         # Plot and save metrics
         run_dir = plot_metrics(train_metrics, epoch, os.path.join(args.checkpoint_dir, f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}"))
-        plot_metrics(val_metrics, epoch, run_dir)
+        plot_metrics(val_metrics, epoch, run_dir, output_dir=args.output_dir)
         
         # Early stopping
         early_stopping(val_loss, model, optimizer, epoch, args, args.checkpoint_dir, val_metrics)
@@ -474,12 +477,16 @@ def main():
     parser.add_argument('--pin_memory', action='store_true', help='Use pinned memory for faster data transfer')
     
     # Checkpoint parameters
-    parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help='Directory to save checkpoints')
+    parser.add_argument('--checkpoint_dir', type=str, default='snuffy/checkpoints', help='Directory to save checkpoints')
     
     args = parser.parse_args()
     
     # Create checkpoint directory
     os.makedirs(args.checkpoint_dir, exist_ok=True)
+    # Create output directory for metrics/plots
+    if not hasattr(args, 'output_dir'):
+        args.output_dir = 'snuffy/output'
+    os.makedirs(args.output_dir, exist_ok=True)
     
     # Train model
     train_model(args)
