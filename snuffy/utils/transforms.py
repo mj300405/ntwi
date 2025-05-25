@@ -3,14 +3,16 @@ import torchvision.transforms as T
 import torchvision.transforms.functional as F
 import random
 import numpy as np
+from PIL import Image
 
 class DINOTransform:
     """
     DINO-specific transforms for self-supervised learning
     """
-    def __init__(self, global_crops_scale=(0.4, 1.0), local_crops_scale=(0.05, 0.4)):
+    def __init__(self, global_crops_scale=(0.4, 1.0), local_crops_scale=(0.05, 0.4), is_train=True):
         self.global_crops_scale = global_crops_scale
         self.local_crops_scale = local_crops_scale
+        self.is_train = is_train
         
         # Global transforms
         self.global_transform = T.Compose([
@@ -21,6 +23,7 @@ class DINOTransform:
             ], p=0.8),
             T.RandomGrayscale(p=0.2),
             T.RandomApply([T.GaussianBlur(kernel_size=23)], p=0.5),
+            T.ToTensor(),  # Convert PIL Image to tensor
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
         
@@ -33,28 +36,38 @@ class DINOTransform:
             ], p=0.8),
             T.RandomGrayscale(p=0.2),
             T.RandomApply([T.GaussianBlur(kernel_size=23)], p=0.5),
+            T.ToTensor(),  # Convert PIL Image to tensor
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
     
     def __call__(self, image):
-        # Generate two global views
-        global_view1 = self.global_transform(image)
-        global_view2 = self.global_transform(image)
-        
-        # Generate local views
-        local_views = [self.local_transform(image) for _ in range(8)]
-        
-        return global_view1, global_view2, local_views
+        if not isinstance(image, Image.Image):
+            raise TypeError(f"Expected PIL Image, got {type(image)}")
+            
+        if self.is_train:
+            # Generate two global views
+            global_view1 = self.global_transform(image)
+            global_view2 = self.global_transform(image)
+            
+            # Generate local views
+            local_views = [self.local_transform(image) for _ in range(8)]
+            
+            return global_view1, global_view2, local_views
+        else:
+            # For inference, just return a single transformed view
+            return self.global_transform(image)
 
 class MAETransform:
     """
     MAE-specific transforms for self-supervised learning
     """
-    def __init__(self, mask_ratio=0.75):
+    def __init__(self, mask_ratio=0.75, is_train=True):
         self.mask_ratio = mask_ratio
+        self.is_train = is_train
         self.transform = T.Compose([
             T.RandomResizedCrop(224, scale=(0.2, 1.0)),
             T.RandomHorizontalFlip(),
+            T.ToTensor(),  # Convert PIL Image to tensor
             T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
     
@@ -84,18 +97,25 @@ class MAETransform:
         return x_masked, mask, ids_restore
     
     def __call__(self, image):
+        if not isinstance(image, Image.Image):
+            raise TypeError(f"Expected PIL Image, got {type(image)}")
+            
         # Apply basic transforms
         x = self.transform(image)
         
-        # Reshape to patches
-        B, C, H, W = x.shape
-        x = x.reshape(B, C, H//16, 16, W//16, 16)
-        x = x.permute(0, 2, 4, 1, 3, 5).reshape(B, (H//16)*(W//16), C*16*16)
-        
-        # Apply masking
-        x_masked, mask, ids_restore = self.random_masking(x, self.mask_ratio)
-        
-        return x_masked, mask, ids_restore
+        if self.is_train:
+            # Reshape to patches
+            B, C, H, W = x.shape
+            x = x.reshape(B, C, H//16, 16, W//16, 16)
+            x = x.permute(0, 2, 4, 1, 3, 5).reshape(B, (H//16)*(W//16), C*16*16)
+            
+            # Apply masking
+            x_masked, mask, ids_restore = self.random_masking(x, self.mask_ratio)
+            
+            return x_masked, mask, ids_restore
+        else:
+            # For inference, just return the transformed image
+            return x
 
 class SnuffyTransform:
     """
@@ -106,17 +126,19 @@ class SnuffyTransform:
         self.is_train = is_train
         
         if adapter_type == 'dino':
-            self.transform = DINOTransform()
+            self.transform = DINOTransform(is_train=is_train)
         elif adapter_type == 'mae':
-            self.transform = MAETransform()
+            self.transform = MAETransform(is_train=is_train)
         else:
             # Default transforms for ResNet
             self.transform = T.Compose([
-                T.RandomResizedCrop(224) if is_train else T.Resize(256),
+                T.Resize(256) if not is_train else T.RandomResizedCrop(224),
                 T.RandomHorizontalFlip() if is_train else T.Lambda(lambda x: x),
-                T.ToTensor(),
+                T.ToTensor(),  # Convert PIL Image to tensor
                 T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             ])
     
     def __call__(self, image):
+        if not isinstance(image, Image.Image):
+            raise TypeError(f"Expected PIL Image, got {type(image)}")
         return self.transform(image)

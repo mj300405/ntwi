@@ -5,6 +5,7 @@ import numpy as np
 from PIL import Image
 from pathlib import Path
 import random
+import torchvision.transforms as T
 
 class SnuffyBagDataset(Dataset):
     """
@@ -132,18 +133,124 @@ class SnuffyBagDataset(Dataset):
         tiles = []
         for tile_path in tile_paths:
             try:
+                # Load and preprocess image
                 img = Image.open(tile_path).convert('RGB')
                 if img.size != (224, 224):
                     img = img.resize((224, 224), Image.Resampling.LANCZOS)
                 
-                # Apply transforms if specified
+                # Apply transform if available
+                if self.transform:
+                    transformed = self.transform(img)
+                    if isinstance(transformed, tuple):
+                        # For DINO/MAE transforms that return multiple views
+                        # Use the first global view
+                        img = transformed[0]
+                    else:
+                        img = transformed
+                else:
+                    # If no transform, convert to tensor and normalize
+                    img = T.ToTensor()(img)
+                    img = T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(img)
+                
+                tiles.append(img)
+            except Exception as e:
+                print(f"Error loading {tile_path}: {e}")
+                blank_img = torch.zeros((3, 224, 224))
+                tiles.append(blank_img)
+        
+        # Stack tiles into a single tensor
+        if tiles:
+            tiles_tensor = torch.stack(tiles)
+            
+            # Pad to max_tiles if necessary
+            if tiles_tensor.size(0) < self.max_tiles:
+                padding_size = self.max_tiles - tiles_tensor.size(0)
+                padding = torch.zeros((padding_size, 3, 224, 224))
+                tiles_tensor = torch.cat([tiles_tensor, padding], dim=0)
+        else:
+            tiles_tensor = torch.zeros((self.max_tiles, 3, 224, 224))
+        
+        return tiles_tensor, torch.tensor(label, dtype=torch.long)
+
+class TestSnuffyBagDataset(SnuffyBagDataset):
+    def __init__(self, data_dir=None, transform=None, max_tiles=100):
+        """
+        Custom dataset class for test data with different directory names
+        Args:
+            data_dir: Directory containing the data
+            transform: Optional transform to be applied on a sample
+            max_tiles: Maximum number of tiles to use per slide
+        """
+        self.data_dir = Path(data_dir) if data_dir else None
+        self.max_tiles = max_tiles
+        self.transform = transform
+        
+        # Load real data from directory
+        self.slide_paths = []
+        self.labels = []
+        
+        # Load positive samples
+        positive_dir = self.data_dir / "C-S-EGFR_positive"
+        if positive_dir.exists():
+            for slide_dir in positive_dir.iterdir():
+                if slide_dir.is_dir():
+                    tile_paths = list(slide_dir.glob("*.png"))
+                    if tile_paths:  # Only add if we found valid tiles
+                        self.slide_paths.append(tile_paths)
+                        self.labels.append(1)  # 1 for positive
+        
+        # Load negative samples
+        negative_dir = self.data_dir / "C-S-EGFR_negative"
+        if negative_dir.exists():
+            for slide_dir in negative_dir.iterdir():
+                if slide_dir.is_dir():
+                    tile_paths = list(slide_dir.glob("*.png"))
+                    if tile_paths:  # Only add if we found valid tiles
+                        self.slide_paths.append(tile_paths)
+                        self.labels.append(0)  # 0 for negative
+        
+        if not self.slide_paths:
+            raise ValueError(f"No valid slides found in {data_dir}")
+        
+        print(f"Found {len(self.slide_paths)} slides ({sum(self.labels)} positive, {len(self.labels) - sum(self.labels)} negative)")
+    
+    def __len__(self):
+        """
+        Get the number of samples in the dataset
+        Returns:
+            int: Number of samples
+        """
+        return len(self.slide_paths)
+
+    def __getitem__(self, idx):
+        """
+        Returns:
+            tiles: A tensor of shape [n, C, H, W] where n is the number of tiles
+            label: The label of the slide
+        """
+        tile_paths = self.slide_paths[idx]
+        label = self.labels[idx]
+        
+        # Limit the number of tiles if necessary
+        if len(tile_paths) > self.max_tiles:
+            tile_paths = random.sample(tile_paths, self.max_tiles)
+        
+        # Load tiles on-demand
+        tiles = []
+        for tile_path in tile_paths:
+            try:
+                # Load and preprocess image
+                img = Image.open(tile_path).convert('RGB')
+                if img.size != (224, 224):
+                    img = img.resize((224, 224), Image.Resampling.LANCZOS)
+                
+                # Apply transform if available
                 if self.transform:
                     img = self.transform(img)
                 else:
-                    img = np.array(img)
-                    img = img.transpose(2, 0, 1)  # HWC to CHW
-                    img = img.astype(np.float32) / 255.0  # Normalize to [0,1]
-                    img = torch.from_numpy(img)
+                    # If no transform, convert to tensor and normalize
+                    img = T.ToTensor()(img)
+                    img = T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])(img)
                 
                 tiles.append(img)
             except Exception as e:
