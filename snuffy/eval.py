@@ -250,7 +250,7 @@ def main():
     # Evaluation parameters
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
     parser.add_argument('--num_workers', type=int, default=4, help='Number of data loading workers')
-    parser.add_argument('--checkpoint_path', type=str, default='checkpoints/best_models/latest_best_model.pt', help='Path to model checkpoint')
+    parser.add_argument('--checkpoint_path', type=str, default='snuffy/checkpoints/best_models/latest_best_model.pt', help='Path to model checkpoint')
     parser.add_argument('--visualization_dir', type=str, default='output/visualizations', help='Directory to save visualizations')
     parser.add_argument('--pin_memory', action='store_true', help='Use pinned memory for faster data transfer to GPU')
     
