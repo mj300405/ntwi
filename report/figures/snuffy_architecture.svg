@@ -1,0 +1,203 @@
+<svg viewBox="0 0 1200 600" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Gradients for different components -->
+    <linearGradient id="inputGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#e3f2fd;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#bbdefb;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="backboneGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f3e5f5;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e1bee7;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="adapterGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fff8e1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ffecb3;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="attentionGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fff3e0;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ffcc02;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="classifierGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#e8f5e8;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#c8e6c9;stop-opacity:1" />
+    </linearGradient>
+    
+    <!-- Arrow marker -->
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+            refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333" />
+    </marker>
+  </defs>
+  
+  <!-- Title -->
+  <text x="600" y="30" text-anchor="middle" class="title" 
+        style="font-family: Arial, sans-serif; font-size: 24px; font-weight: bold; fill: #333;">
+    Snuffy: Self-Supervised Learning with Multiple Instance Learning
+  </text>
+  
+  <!-- Input Layer -->
+  <rect x="50" y="80" width="120" height="100" rx="8" fill="url(#inputGrad)" 
+        stroke="#1976d2" stroke-width="2"/>
+  <text x="110" y="105" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 12px; font-weight: bold;">Input Tiles</text>
+  <text x="110" y="120" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 10px;">[B, max_tiles,</text>
+  <text x="110" y="135" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 10px;">C, H, W]</text>
+  <text x="110" y="155" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 9px;">≤100 tiles</text>
+  <text x="110" y="170" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 9px;">per sample</text>
+  
+  <!-- Individual Tiles -->
+  <g transform="translate(50, 200)">
+    <rect x="0" y="0" width="25" height="25" fill="#e3f2fd" stroke="#1976d2"/>
+    <rect x="30" y="0" width="25" height="25" fill="#e3f2fd" stroke="#1976d2"/>
+    <rect x="60" y="0" width="25" height="25" fill="#e3f2fd" stroke="#1976d2"/>
+    <rect x="90" y="0" width="25" height="25" fill="#e3f2fd" stroke="#1976d2"/>
+    <text x="60" y="35" text-anchor="middle" 
+          style="font-family: Arial, sans-serif; font-size: 9px;">Individual Tiles</text>
+  </g>
+  
+  <!-- Backbone Network -->
+  <rect x="230" y="80" width="150" height="130" rx="8" fill="url(#backboneGrad)" 
+        stroke="#7b1fa2" stroke-width="2"/>
+  <text x="305" y="105" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 14px; font-weight: bold;">Backbone Network</text>
+  <text x="305" y="125" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 11px;">ResNet-18 / ViT-Small</text>
+  <text x="305" y="145" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 10px;">Pre-trained Features</text>
+  
+  <!-- Feature dimensions -->
+  <rect x="240" y="160" width="130" height="40" rx="4" fill="#f8bbd9" stroke="#ad1457"/>
+  <text x="305" y="175" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 9px;">ResNet-18: 512-dim</text>
+  <text x="305" y="190" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 9px;">ViT-Small: 384-dim</text>
+  
+  <!-- Adapter Module -->
+  <rect x="430" y="100" width="120" height="90" rx="8" fill="url(#adapterGrad)" 
+        stroke="#f57c00" stroke-width="2"/>
+  <text x="490" y="125" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 14px; font-weight: bold;">Adapter</text>
+  <text x="490" y="140" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 11px;">(Optional)</text>
+  <text x="490" y="160" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 10px;">Down → GELU → Up</text>
+  <text x="490" y="175" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 9px;">+ Residual Connection</text>
+  
+  <!-- Multi-Head Attention -->
+  <rect x="600" y="80" width="180" height="130" rx="8" fill="url(#attentionGrad)" 
+        stroke="#ff9800" stroke-width="2"/>
+  <text x="690" y="105" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 14px; font-weight: bold;">Multi-Head</text>
+  <text x="690" y="120" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 14px; font-weight: bold;">Attention</text>
+  <text x="690" y="140" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 11px;">Self-Attention</text>
+  <text x="690" y="155" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 10px;">[B, tiles, feat_dim]</text>
+  
+  <!-- Attention heads -->
+  <g transform="translate(620, 170)">
+    <rect x="0" y="0" width="30" height="20" rx="3" fill="#fff8e1" stroke="#ff8f00"/>
+    <text x="15" y="13" text-anchor="middle" style="font-family: Arial, sans-serif; font-size: 8px;">H1</text>
+    <rect x="35" y="0" width="30" height="20" rx="3" fill="#fff8e1" stroke="#ff8f00"/>
+    <text x="50" y="13" text-anchor="middle" style="font-family: Arial, sans-serif; font-size: 8px;">H2</text>
+    <rect x="70" y="0" width="30" height="20" rx="3" fill="#fff8e1" stroke="#ff8f00"/>
+    <text x="85" y="13" text-anchor="middle" style="font-family: Arial, sans-serif; font-size: 8px;">H3</text>
+    <rect x="105" y="0" width="30" height="20" rx="3" fill="#fff8e1" stroke="#ff8f00"/>
+    <text x="120" y="13" text-anchor="middle" style="font-family: Arial, sans-serif; font-size: 8px;">H4</text>
+  </g>
+  
+  <!-- Global Pooling -->
+  <rect x="830" y="100" width="100" height="70" rx="8" fill="#e8f5e8" 
+        stroke="#388e3c" stroke-width="2"/>
+  <text x="880" y="125" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 12px; font-weight: bold;">Global</text>
+  <text x="880" y="140" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 12px; font-weight: bold;">Pooling</text>
+  <text x="880" y="155" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 9px;">Mean over tiles</text>
+  
+  <!-- Classification Head -->
+  <rect x="980" y="80" width="150" height="130" rx="8" fill="url(#classifierGrad)" 
+        stroke="#388e3c" stroke-width="2"/>
+  <text x="1055" y="105" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 14px; font-weight: bold;">Classification</text>
+  <text x="1055" y="120" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 14px; font-weight: bold;">Head</text>
+  
+  <!-- Classifier layers -->
+  <g transform="translate(990, 135)">
+    <rect x="0" y="0" width="130" height="18" rx="3" fill="#c8e6c9" stroke="#4caf50"/>
+    <text x="65" y="12" text-anchor="middle" 
+          style="font-family: Arial, sans-serif; font-size: 9px;">Linear(feat_dim → 256)</text>
+    
+    <rect x="0" y="22" width="130" height="18" rx="3" fill="#a5d6a7" stroke="#4caf50"/>
+    <text x="65" y="34" text-anchor="middle" 
+          style="font-family: Arial, sans-serif; font-size: 9px;">ReLU + Dropout</text>
+    
+    <rect x="0" y="44" width="130" height="18" rx="3" fill="#81c784" stroke="#4caf50"/>
+    <text x="65" y="56" text-anchor="middle" 
+          style="font-family: Arial, sans-serif; font-size: 9px;">Linear(256 → num_classes)</text>
+  </g>
+  
+  <!-- Output -->
+  <rect x="1050" y="260" width="80" height="60" rx="8" fill="#ffcdd2" 
+        stroke="#d32f2f" stroke-width="2"/>
+  <text x="1090" y="285" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 12px; font-weight: bold;">Output</text>
+  <text x="1090" y="300" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 10px;">Logits</text>
+  <text x="1090" y="315" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 10px;">Attn Weights</text>
+  
+  <!-- Main flow arrows -->
+  <line x1="170" y1="130" x2="220" y2="130" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <line x1="380" y1="145" x2="420" y2="145" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <line x1="550" y1="145" x2="590" y2="145" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <line x1="780" y1="145" x2="820" y2="135" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <line x1="930" y1="135" x2="970" y2="145" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <line x1="1055" y1="210" x2="1090" y2="250" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)"/>
+  
+  <!-- Tile processing annotation -->
+  <text x="200" y="70" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 9px; fill: #666;">
+    Process each tile
+  </text>
+  
+  <!-- Feature stacking annotation -->
+  <text x="570" y="70" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 9px; fill: #666;">
+    Stack features
+  </text>
+  
+  <!-- Attention output flow -->
+  <g transform="translate(650, 240)">
+    <rect x="0" y="0" width="100" height="40" rx="4" fill="#fff3e0" stroke="#ff9800"/>
+    <text x="50" y="15" text-anchor="middle" 
+          style="font-family: Arial, sans-serif; font-size: 10px; font-weight: bold;">Attention</text>
+    <text x="50" y="30" text-anchor="middle" 
+          style="font-family: Arial, sans-serif; font-size: 10px; font-weight: bold;">Weights</text>
+  </g>
+  
+  <!-- Arrow from attention to weights -->
+  <line x1="690" y1="210" x2="700" y2="230" stroke="#333" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+  
+  <!-- Adapter bypass -->
+  <path d="M 430 120 Q 400 100 420 80 Q 440 60 580 60 Q 600 70 600 100" 
+        stroke="#ffa726" stroke-width="2" fill="none" stroke-dasharray="5,5"/>
+  <text x="515" y="55" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 9px; fill: #ff8f00;">
+    Optional bypass
+  </text>
+  
+  <!-- Model name at bottom -->
+  <text x="600" y="360" text-anchor="middle" 
+        style="font-family: Arial, sans-serif; font-size: 14px; font-style: italic; fill: #666;">
+    Snuffy: Adaptive Multiple Instance Learning with Self-Supervised Features
+  </text>
+</svg>
